@@ -26,17 +26,82 @@ export function normalizeText(text) {
     .trim();
 }
 
-/** その場面の図の一覧（1枚の図、または手順ごとの図） */
+/** 1つの図の単位（場面そのもの、またはパターン1つ）の図：1枚の図、または手順ごとの図 */
+export function unitDiagrams(unit) {
+  if (Array.isArray(unit.steps)) return unit.steps.map((st) => ({ caption: st.caption, diagram: st.diagram }));
+  return unit.diagram ? [{ caption: unit.caption || '', diagram: unit.diagram }] : [];
+}
+
+/** その場面の図の一覧（パターンがあれば、すべてのパターンの図を順に） */
 export function itemDiagrams(item) {
-  if (Array.isArray(item.steps)) return item.steps.map((st) => ({ caption: st.caption, diagram: st.diagram }));
-  return item.diagram ? [{ caption: item.caption || '', diagram: item.diagram }] : [];
+  if (Array.isArray(item.patterns)) return item.patterns.flatMap((p) => unitDiagrams(p));
+  return unitDiagrams(item);
+}
+
+/** パターンの見出し（「パターン1」など） */
+export function patternLabel(index) {
+  return `パターン${index + 1}`;
 }
 
 function haystack(item) {
+  const patterns = Array.isArray(item.patterns) ? item.patterns : [];
   return normalizeText([
     item.title, item.situation, ...(item.points || []), ...(item.watch || []), CATEGORY_LABEL[item.cat] || '',
+    ...patterns.flatMap((p) => [p.name, ...(p.points || [])]),
     ...itemDiagrams(item).map((d) => d.caption),
   ].join(' '));
+}
+
+/**
+ * 整理してまとめた場面の、前の ID → 今の ID（pattern はまとめた先のパターンの番号、0から）。
+ * お気に入り・チームのメモ・古いリンクを引き継ぐために使う。
+ */
+export const QA_MOVED = {
+  'press-8sec': { to: 'press-turnovers' },
+  'press-break-finish': { to: 'tr-advantage', pattern: 1 },
+  'zone-boxone': { to: 'man-ace', pattern: 1 },
+  'zone-oreb': { to: 'reb-our-oreb' },
+  'man-deny': { to: 'man-pressure', pattern: 1 },
+  'def-23-weak': { to: 'def-23-basic' },
+  'reb-tall': { to: 'reb-boxout' },
+  'tr-outlet': { to: 'tr-3lane' },
+  'tr-outnumbered': { to: 'tr-defense' },
+  'game-teamfouls': { to: 'def-fouls' },
+  'set-2-pnr': { to: 'set-2', pattern: 0 },
+  'set-2-return': { to: 'set-2', pattern: 1 },
+  'set-3-pindown': { to: 'set-3', pattern: 0 },
+  'set-3-stagger': { to: 'set-3', pattern: 1 },
+};
+
+/** ID を今の場面に読み替える。{ id, pattern }（pattern は分からなければ null） */
+export function resolveQaId(id, moved = QA_MOVED) {
+  const m = moved[id];
+  return m ? { id: m.to, pattern: Number.isInteger(m.pattern) ? m.pattern : null } : { id, pattern: null };
+}
+
+/**
+ * お気に入りとチームのメモを、まとめた先の ID に移す（純粋関数）。
+ * メモが両方にあるときは、空行をはさんでつなげる。changed は移したものがあったか。
+ */
+export function migrateQaSettings({ qaFavorites, qaNotes } = {}, moved = QA_MOVED) {
+  const favIn = Array.isArray(qaFavorites) ? qaFavorites : [];
+  const notesIn = qaNotes && typeof qaNotes === 'object' ? qaNotes : {};
+  let changed = false;
+  const fav = [];
+  for (const id of favIn) {
+    const next = resolveQaId(id, moved).id;
+    if (next !== id) changed = true;
+    if (!fav.includes(next)) fav.push(next);
+    else changed = true;
+  }
+  const notes = {};
+  for (const [id, text] of Object.entries(notesIn)) {
+    const next = resolveQaId(id, moved).id;
+    if (next !== id) changed = true;
+    if (typeof text !== 'string' || !text.trim()) continue;
+    notes[next] = notes[next] ? `${notes[next]}\n\n${text}` : text;
+  }
+  return { qaFavorites: fav, qaNotes: notes, changed };
 }
 
 /**
@@ -92,8 +157,13 @@ export function validateDiagram(d) {
     }
   }
   if (d.ball && !resolvePoint(d, d.ball)) problems.push(`ball ${d.ball} が見つからない`);
+  const orders = [];
   for (const a of d.arrows || []) {
     if (!ARROW_KINDS.includes(a.kind)) problems.push(`矢印の種類 ${a.kind}`);
+    if (a.n != null) {
+      if (!Number.isInteger(a.n) || a.n < 1 || a.n > 9) problems.push(`矢印の順番 ${a.n}`);
+      else orders.push(a.n);
+    }
     for (const key of ['from', 'to', 'via']) {
       if (key === 'via' && a.via == null) continue;
       const p = resolvePoint(d, a[key]);
@@ -111,6 +181,9 @@ export function validateDiagram(d) {
   for (const g of d.guides || []) {
     if (!resolvePoint(d, g.from) || !resolvePoint(d, g.to)) problems.push('guides の点');
   }
+  // 順番の番号は 1 から抜けなく（同じ番号は「同時に」の意味で重なってよい）
+  const uniq = [...new Set(orders)].sort((x, y) => x - y);
+  if (uniq.some((n, i) => n !== i + 1)) problems.push(`矢印の順番が 1 から続いていない（${uniq.join(',')}）`);
   return problems;
 }
 
@@ -119,6 +192,9 @@ export function legendKinds(d) {
   const kinds = new Set();
   if ((d.offense || []).length) kinds.add('offense');
   if ((d.defense || []).length) kinds.add('defense');
-  for (const a of d.arrows || []) kinds.add(a.kind);
-  return ['offense', 'defense', ...ARROW_KINDS].filter((k) => kinds.has(k));
+  for (const a of d.arrows || []) {
+    kinds.add(a.kind);
+    if (a.n != null) kinds.add('order');
+  }
+  return ['offense', 'defense', ...ARROW_KINDS, 'order'].filter((k) => kinds.has(k));
 }

@@ -3,6 +3,7 @@ import * as db from '../db.js';
 import { h, toast, isStandalone, saveJsonFile, pickFile, readFileText, confirmDialog } from '../ui.js';
 import { buildBackup, backupFileName, parseBackup } from '../backup.js';
 import { generateDemo } from '../demo.js';
+import { migrateQaSettings } from '../qa.js';
 
 export function installHint(app, { compact = false } = {}) {
   if (isStandalone()) return null;
@@ -80,6 +81,10 @@ export async function importBackup(app) {
     if (Number.isFinite(parsed.settings.rewindSec)) next.rewindSec = parsed.settings.rewindSec;
     if (Array.isArray(parsed.settings.qaFavorites)) next.qaFavorites = parsed.settings.qaFavorites;
     if (parsed.settings.qaNotes && typeof parsed.settings.qaNotes === 'object') next.qaNotes = parsed.settings.qaNotes;
+    // 古いバックアップのお気に入り・メモも、まとめた先の場面へ移す
+    const qa = migrateQaSettings(next);
+    next.qaFavorites = qa.qaFavorites;
+    next.qaNotes = qa.qaNotes;
     await app.saveSettings(next);
   }
   toast(`${parsed.games.length}試合を読み込みました`);

@@ -9,6 +9,7 @@ import { renderSettings } from './views/settings.js';
 import { renderQuarter } from './views/quarter.js';
 import { renderReview } from './views/review.js';
 import { renderQaList, renderQaDetail } from './views/qa.js';
+import { migrateQaSettings } from './qa.js';
 
 const root = document.getElementById('app');
 
@@ -97,6 +98,15 @@ async function start() {
     return;
   }
   applyTheme(app.settings.theme);
+  // 場面別Q&A を整理してまとめたので、お気に入りとメモをまとめた先へ移す
+  const qa = migrateQaSettings(app.settings);
+  if (qa.changed) {
+    try {
+      await app.saveSettings({ ...app.settings, qaFavorites: qa.qaFavorites, qaNotes: qa.qaNotes });
+    } catch (err) {
+      console.warn('場面別Q&A の設定を移せません', err);
+    }
+  }
   db.requestPersist();
   window.addEventListener('hashchange', route);
   await route();

@@ -133,6 +133,34 @@ function isPlayerRef(ref) {
   return typeof ref === 'string';
 }
 
+/** 線の長さで t（0〜1）の位置の点 */
+function pointAt(pts, t) {
+  const segs = [];
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const len = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    segs.push(len);
+    total += len;
+  }
+  let goal = total * t;
+  for (let i = 0; i < segs.length; i++) {
+    if (goal <= segs[i] || i === segs.length - 1) {
+      const u = segs[i] ? Math.min(1, goal / segs[i]) : 0;
+      return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * u, y: pts[i].y + (pts[i + 1].y - pts[i].y) * u };
+    }
+    goal -= segs[i];
+  }
+  return pts[0];
+}
+
+/** 矢印の順番（①②…）の札 */
+function orderBadge(p, n) {
+  const r = 0.34;
+  return s('g', { class: 'dg-order' },
+    s('rect', { x: p.x - r, y: p.y - r, width: r * 2, height: r * 2, rx: 0.1 }),
+    s('text', { x: p.x, y: p.y + 0.16 }, String(n)));
+}
+
 /**
  * 図を描く。d は qa-data.js の diagram。
  * 戻り値は <figure>（SVG と凡例）。opts.thumb なら凡例なしの小さな図。
@@ -179,8 +207,9 @@ export function renderDiagram(d, { thumb = false, caption = '' } = {}) {
     svg.appendChild(s('path', { d: toPath([a, b]), class: 'dg-guide' }));
   }
 
-  // 矢印（選手の下に描く）
+  // 矢印（選手の下に描く）。順番の札は選手の上に描く
   const arrows = s('g', { class: 'dg-arrows' });
+  const badges = [];
   for (const a of d.arrows || []) {
     const from = resolvePoint(d, a.from);
     const to = resolvePoint(d, a.to);
@@ -188,6 +217,7 @@ export function renderDiagram(d, { thumb = false, caption = '' } = {}) {
     let pts = samplePath(from, to, via, a.corner === true);
     pts = trim(pts, isPlayerRef(a.from) ? 0.62 : 0.05, isPlayerRef(a.to) ? 0.7 : 0.05);
     if (pts.length < 2) continue;
+    if (a.n != null && !thumb) badges.push(orderBadge(pointAt(pts, Number.isFinite(a.nAt) ? a.nAt : 0.5), a.n));
     if (a.kind === 'screen') {
       const end = pts[pts.length - 1];
       const prev = pts[pts.length - 2];
@@ -219,13 +249,14 @@ export function renderDiagram(d, { thumb = false, caption = '' } = {}) {
   // ボールは選手の右上（コートの上端の外にいる選手は右下）
   if (ball) players.appendChild(s('circle', { cx: ball.x + 0.52, cy: ball.y < 0.4 ? ball.y + 0.48 : ball.y - 0.48, r: 0.24, class: 'dg-ball' }));
   svg.appendChild(players);
+  for (const b of badges) svg.appendChild(b);
 
   if (!thumb) {
     for (const l of d.labels || []) svg.appendChild(s('text', { x: l.at[0], y: l.at[1], class: 'dg-label' }, l.text));
   }
   if (thumb) return svg;
 
-  const LABEL = { offense: '攻め', defense: '守り', move: '移動', pass: 'パス', dribble: 'ドリブル', screen: 'スクリーン', ball: 'ボール' };
+  const LABEL = { offense: '攻め', defense: '守り', move: '移動', pass: 'パス', dribble: 'ドリブル', screen: 'スクリーン', order: '順番', ball: 'ボール' };
   const kinds = legendKinds(d);
   if (ball) kinds.push('ball');
   return h('figure', { class: 'dg-figure' },
@@ -241,6 +272,11 @@ function legendIcon(kind) {
   if (kind === 'offense') svg.appendChild(s('circle', { cx: 15, cy: 8, r: 6.5, class: 'dg-off' }));
   else if (kind === 'defense') svg.appendChild(s('path', { d: 'M15 1 L22 14 L8 14 Z', class: 'dg-def' }));
   else if (kind === 'ball') svg.appendChild(s('circle', { cx: 15, cy: 8, r: 4.5, class: 'dg-ball lg' }));
+  else if (kind === 'order') {
+    svg.appendChild(s('g', { class: 'dg-order lg' },
+      s('rect', { x: 8.5, y: 1.5, width: 13, height: 13, rx: 2.5 }),
+      s('text', { x: 15, y: 12 }, '1')));
+  }
   else if (kind === 'screen') {
     svg.appendChild(s('path', { d: 'M2 8 L24 8', class: 'dg-lg-line' }));
     svg.appendChild(s('path', { d: 'M24 2 L24 14', class: 'dg-lg-line bar' }));

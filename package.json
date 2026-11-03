@@ -1,0 +1,9 @@
+{
+  "name": "basket-analyst",
+  "private": true,
+  "type": "module",
+  "description": "女子バスケットボール部のアナリスト用Webアプリ（ビルド不要の静的サイト）",
+  "scripts": {
+    "test": "node --test"
+  }
+}

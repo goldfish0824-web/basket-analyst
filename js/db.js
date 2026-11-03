@@ -141,6 +141,9 @@ export const DEFAULT_SETTINGS = {
   lastBackupAt: null,
   checklistTemplate: [],
   rewindSec: 8,
+  // 場面別Q&A のお気に入りとチームのメモ
+  qaFavorites: [],
+  qaNotes: {},
   // 画面の配色（端末ごと）：'dark'（既定）／'light'
   theme: 'dark',
   // AI接続（端末の中だけに保存。バックアップのファイルには入れない）

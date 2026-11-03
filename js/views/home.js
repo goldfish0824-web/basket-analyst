@@ -37,6 +37,7 @@ export async function renderHome(root, params, app) {
         brandMark(),
         h('div', { class: 'brand-text' }, h('h1', null, 'BasketBall Analyst'))),
       h('div', { class: 'head-actions' },
+        h('a', { class: 'btn', href: '#/qa' }, icon('book'), '場面別Q&A'),
         h('a', { class: 'btn', href: '#/settings' }, icon('settings'), '設定'),
         h('a', { class: 'btn primary', href: '#/new' }, icon('plus'), '新しい試合'))),
     h('div', { class: 'page' },

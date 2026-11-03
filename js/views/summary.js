@@ -56,6 +56,7 @@ export async function renderSummary(root, params, app) {
         h('span', { class: 'muted' }, `${formatDate(game.date)} ${game.tournament || ''}`)),
       h('div', { class: 'head-actions' },
         h('button', { class: 'btn', type: 'button', onclick: () => exportGame(game) }, '書き出す'),
+        h('a', { class: 'btn', href: `#/game/${game.id}/review` }, '振り返り'),
         h('a', { class: 'btn primary', href: `#/game/${game.id}/record` }, '記録へ'))),
     h('div', { class: 'page wide' },
       h('div', { class: 'summary-top' },
@@ -98,7 +99,7 @@ function table(headers, rows, { className = '', foot = [] } = {}) {
       foot.length ? h('tfoot', null, foot.map((r) => h('tr', { class: r.cls || '' }, r.cells.map((c, i) => (i === 0 ? h('th', { scope: 'row' }, c) : h('td', null, c)))))) : null));
 }
 
-function quarterTable(events) {
+export function quarterTable(events) {
   const q = scoreByQuarter(events);
   const total = scoreOf(events);
   const headers = [{ label: '' }, ...q.quarters.map((n) => ({ label: quarterLabel(n) })), { label: '計' }];
@@ -112,7 +113,7 @@ const ma = (m, a) => `${m}-${a}`;
 
 // ---- ボックススコア ----
 
-function boxSection(game, events) {
+export function boxSection(game, events) {
   const us = teamBox(events, 'us', game.roster);
   const usHead = [
     { label: '背番号' }, { label: '呼び名', cls: 'name' }, { label: '得点' }, { label: 'FG' }, { label: 'FG%' },
@@ -155,7 +156,7 @@ function boxSection(game, events) {
 
 // ---- チーム指標・守備隊形別 ----
 
-function teamSection(game, events, defenses) {
+export function teamSection(game, events, defenses) {
   const ind = teamIndicators(events);
   const rows = [
     ['ポゼッション推定', decimalText(ind.us.poss), decimalText(ind.opp.poss)],
@@ -191,7 +192,7 @@ function teamSection(game, events, defenses) {
 
 // ---- シュートチャート ----
 
-function chartSection(game, events) {
+export function chartSection(game, events) {
   const state = { team: 'us', player: 'all', quarter: 'all', defense: 'all', tag: 'all', overlay: true };
   const { svg, layers } = createCourt({ label: 'シュートチャート' });
   drawZoneLines(layers.zones);

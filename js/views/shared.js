@@ -67,7 +67,7 @@ export async function importBackup(app) {
   const overwrite = parsed.games.filter((g) => existing.has(g.id)).length;
   const lines = [`${parsed.games.length}試合（${parsed.events.length}件の記録）を読み込みます。`];
   if (overwrite) lines.push(`端末にある同じ試合 ${overwrite}件は、ファイルの内容で上書きします。`);
-  if (parsed.settings) lines.push('名簿テンプレートと守備隊形の選択肢も、ファイルの内容に置き換えます。');
+  if (parsed.settings) lines.push('名簿テンプレート・守備隊形の選択肢・チェック項目も、ファイルの内容に置き換えます。');
   if (parsed.skipped) lines.push(`形の合わない記録 ${parsed.skipped}件は読み飛ばします。`);
   const ok = await confirmDialog(lines.join('\n'), { ok: '読み込む', title: 'バックアップの読み込み' });
   if (!ok) return false;
@@ -76,6 +76,8 @@ export async function importBackup(app) {
     const next = { ...app.settings };
     if (Array.isArray(parsed.settings.rosterTemplate)) next.rosterTemplate = parsed.settings.rosterTemplate;
     if (Array.isArray(parsed.settings.defenses) && parsed.settings.defenses.length) next.defenses = parsed.settings.defenses;
+    if (Array.isArray(parsed.settings.checklistTemplate)) next.checklistTemplate = parsed.settings.checklistTemplate;
+    if (Number.isFinite(parsed.settings.rewindSec)) next.rewindSec = parsed.settings.rewindSec;
     await app.saveSettings(next);
   }
   toast(`${parsed.games.length}試合を読み込みました`);

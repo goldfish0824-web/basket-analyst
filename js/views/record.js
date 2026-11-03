@@ -457,6 +457,7 @@ export async function renderRecord(root, params, app) {
             `${quarterLabel(qs.quarter)}のまとめ・AI特筆データ${qs.phase === 'live' ? '（ここまで）' : ''}`)
           : null,
         h('a', { class: 'btn', href: `#/game/${game.id}/summary`, onclick: () => close() }, '集計を見る'),
+        h('a', { class: 'btn', href: `#/game/${game.id}/review`, onclick: () => close() }, '振り返り（プレー一覧・動画・チェックポイント）'),
         h('a', { class: 'btn', href: `#/game/${game.id}/edit`, onclick: () => close() }, '試合設定を編集（名簿・相手の背番号）'),
         h('a', { class: 'btn', href: '#/', onclick: () => close() }, 'ホームへ戻る')),
       actions: [{ label: '閉じる' }],

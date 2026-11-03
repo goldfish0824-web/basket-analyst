@@ -1,7 +1,8 @@
-// 設定：バックアップ、ホーム画面追加の案内、名簿テンプレート、守備隊形の選択肢、AI接続、デモ試合
+// 設定：バックアップ、ホーム画面追加の案内、名簿テンプレート、守備隊形の選択肢、チェック項目、振り返り、AI接続、デモ試合
 import { h, toast, confirmDialog, isStandalone } from '../ui.js';
-import { DEFAULT_DEFENSES } from '../model.js';
+import { DEFAULT_DEFENSES, uuid } from '../model.js';
 import { insightEndpoint, testConnection, reasonText } from '../ai.js';
+import { CHECK_METRICS, CHECK_EXAMPLES, DEFAULT_REWIND_SEC, targetText } from '../review.js';
 import {
   installHint, exportAll, importBackup, createDemoGame, rosterEditor, lastBackupText,
 } from './shared.js';
@@ -43,6 +44,14 @@ export async function renderSettings(root, params, app) {
     });
   }
   drawDefenses();
+
+  // ---- チェック項目のテンプレート・巻き戻し秒数 ----
+  const checklist = checklistEditor(app.settings.checklistTemplate || []);
+  const checkError = h('p', { class: 'form-error', role: 'alert' });
+  const rewind = h('input', {
+    type: 'number', inputmode: 'numeric', min: '0', max: '60', step: '1', class: 'rewind-input',
+    value: String(app.settings.rewindSec ?? DEFAULT_REWIND_SEC), 'aria-label': '巻き戻し秒数',
+  });
 
   // ---- AI接続 ----
   const workerUrl = h('input', {
@@ -140,6 +149,52 @@ export async function renderSettings(root, params, app) {
             },
           }, '初期値に戻す'))),
       h('section', { class: 'card' },
+        h('h2', null, 'チェック項目（振り返りのチェックポイント）'),
+        h('p', { class: 'field-note' }, '項目は自由に追加・編集・並べ替えできます。数字と結びつけられる項目は目標を入れると、試合の数字から自動で ◯／× を出します。'),
+        checklist.el,
+        checkError,
+        h('div', { class: 'row' },
+          h('button', {
+            class: 'btn primary', type: 'button',
+            onclick: async () => {
+              checkError.textContent = '';
+              const r = checklist.read();
+              if (r.error) {
+                checkError.textContent = r.error;
+                return;
+              }
+              await app.saveSettings({ ...app.settings, checklistTemplate: r.items });
+              checklist.setItems(r.items);
+              toast('チェック項目を保存しました');
+            },
+          }, 'チェック項目を保存'),
+          h('button', {
+            class: 'btn', type: 'button',
+            onclick: () => {
+              checklist.addExamples();
+              toast('例を追加しました（保存するまで反映されません）');
+            },
+          }, '例を入れる'))),
+      h('section', { class: 'card' },
+        h('h2', null, '振り返り（動画）'),
+        h('label', { class: 'field inline' },
+          h('span', { class: 'field-label' }, '巻き戻し秒数'),
+          rewind,
+          h('span', null, '秒')),
+        h('p', { class: 'field-note' }, '記録はプレーの後に入力するので、動画はその分だけ前から再生します（既定 8秒）。'),
+        h('div', { class: 'row' }, h('button', {
+          class: 'btn primary', type: 'button',
+          onclick: async () => {
+            const v = Number(rewind.value);
+            if (!Number.isFinite(v) || v < 0 || v > 60) {
+              toast('巻き戻し秒数は 0〜60 で入れてください', { kind: 'error' });
+              return;
+            }
+            await app.saveSettings({ ...app.settings, rewindSec: Math.round(v) });
+            toast('保存しました');
+          },
+        }, '保存'))),
+      h('section', { class: 'card' },
         h('h2', null, 'AI接続（AI特筆データ）'),
         h('p', { class: 'field-note' }, 'クォーター終了画面の「AI特筆データ」で使います。未設定・通信できないときは、端末内の自動抽出（AIなし）で表示します。'),
         h('div', { class: 'grid-2' },
@@ -182,4 +237,69 @@ export async function renderSettings(root, params, app) {
         }, 'デモ試合を作る')),
       h('p', { class: 'muted small' }, 'バスケ・アナリスト v0.1')),
   );
+}
+
+/** チェック項目のテンプレートを編集する部品 */
+function checklistEditor(initial) {
+  const rows = h('div', { class: 'check-rows' });
+
+  const addRow = (item = { id: uuid(), label: '', target: null }) => {
+    const label = h('input', { type: 'text', class: 'ck-label', value: item.label || '', placeholder: '例：ボックスアウト', maxlength: '40', 'aria-label': '項目名' });
+    const metric = h('select', { class: 'ck-metric', 'aria-label': '目標にする数字' },
+      h('option', { value: '' }, '目標なし（◯△×で評価）'),
+      CHECK_METRICS.map((m) => h('option', { value: m.key, selected: item.target && item.target.key === m.key }, m.label)));
+    const value = h('input', {
+      type: 'number', inputmode: 'decimal', class: 'ck-value', value: item.target ? String(item.target.value) : '', placeholder: '数', 'aria-label': '目標の数',
+    });
+    const op = h('select', { class: 'ck-op', 'aria-label': '以下か以上か' },
+      h('option', { value: 'le', selected: !item.target || item.target.op !== 'ge' }, '以下'),
+      h('option', { value: 'ge', selected: item.target && item.target.op === 'ge' }, '以上'));
+    const targetBox = h('span', { class: 'ck-target' }, value, op);
+    const sync = () => {
+      targetBox.style.visibility = metric.value ? 'visible' : 'hidden';
+    };
+    metric.addEventListener('change', sync);
+    sync();
+    const row = h('div', { class: 'check-row', dataset: { id: item.id } },
+      label, metric, targetBox,
+      h('button', { class: 'btn small', type: 'button', 'aria-label': '上へ', onclick: () => row.previousElementSibling && rows.insertBefore(row, row.previousElementSibling) }, '↑'),
+      h('button', { class: 'btn small', type: 'button', 'aria-label': '下へ', onclick: () => row.nextElementSibling && rows.insertBefore(row.nextElementSibling, row) }, '↓'),
+      h('button', { class: 'btn small', type: 'button', 'aria-label': 'この項目を削除', onclick: () => row.remove() }, '削除'));
+    rows.appendChild(row);
+    return row;
+  };
+
+  for (const it of initial) addRow(it);
+
+  const el = h('div', { class: 'checklist-editor' },
+    rows,
+    h('button', { class: 'btn', type: 'button', onclick: () => addRow().querySelector('input').focus() }, '＋ 項目を追加'));
+
+  return {
+    el,
+    setItems(items) {
+      rows.textContent = '';
+      for (const it of items) addRow(it);
+    },
+    addExamples() {
+      for (const ex of CHECK_EXAMPLES) addRow({ id: uuid(), label: ex.label, target: ex.target ? { ...ex.target } : null });
+    },
+    read() {
+      const items = [];
+      for (const row of rows.querySelectorAll('.check-row')) {
+        const label = row.querySelector('.ck-label').value.trim();
+        const key = row.querySelector('.ck-metric').value;
+        const valueText = row.querySelector('.ck-value').value.trim();
+        if (!label && !key) continue;
+        let target = null;
+        if (key) {
+          const value = Number(valueText);
+          if (valueText === '' || !Number.isFinite(value)) return { error: `目標の数を入れてください（${label || '名前なし'}）` };
+          target = { key, op: row.querySelector('.ck-op').value, value };
+        }
+        items.push({ id: row.dataset.id, label: label || targetText(target), target });
+      }
+      return { items };
+    },
+  };
 }

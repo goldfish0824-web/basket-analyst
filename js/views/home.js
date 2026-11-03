@@ -100,6 +100,7 @@ function gameCard(g, info, app) {
     h('div', { class: 'game-actions' },
       h('a', { class: 'btn', href: `#/game/${g.id}/record` }, '記録'),
       h('a', { class: 'btn', href: `#/game/${g.id}/summary` }, '集計'),
+      h('a', { class: 'btn', href: `#/game/${g.id}/review` }, '振り返り'),
       h('button', { class: 'btn', type: 'button', 'aria-label': 'その他の操作', onclick: more }, '…')),
   );
 }

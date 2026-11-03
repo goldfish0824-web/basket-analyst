@@ -3,6 +3,7 @@ import * as db from '../db.js';
 import { h, toast, todayString } from '../ui.js';
 import { newGame, sortNumbers, parseNumberList } from '../model.js';
 import { rosterEditor } from './shared.js';
+import { videoEditor } from './video-editor.js';
 
 export async function renderSetup(root, params, app) {
   const editing = params.gameId ? await db.getGame(params.gameId) : null;
@@ -28,10 +29,7 @@ export async function renderSetup(root, params, app) {
     type: 'text', inputmode: 'numeric', value: (g.oppNumbers || []).join(' '),
     placeholder: '例：4 5 6 7 8（分からなければ空欄。試合中にも追加できます）',
   });
-  const video = h('input', {
-    type: 'url', inputmode: 'url', value: (g.videos && g.videos[0] && g.videos[0].url) || '',
-    placeholder: 'https://youtu.be/…（後から入力できます）',
-  });
+  const video = videoEditor(g.videos || []);
   const errorBox = h('p', { class: 'form-error', role: 'alert' });
 
   const save = async () => {
@@ -50,10 +48,12 @@ export async function renderSetup(root, params, app) {
       errorBox.textContent = `相手の背番号は0〜99の数字で入力してください（${opp.bad.join('、')}）`;
       return;
     }
-    const url = video.value.trim();
-    const videos = url
-      ? [{ url, quarter: null, offsetSec: (g.videos && g.videos[0] && g.videos[0].offsetSec) || 0 }, ...((g.videos || []).slice(1))]
-      : (g.videos || []).slice(1);
+    const v = video.read();
+    if (v.error) {
+      errorBox.textContent = v.error;
+      return;
+    }
+    const { videos } = v;
     let game;
     if (editing) {
       game = {
@@ -93,8 +93,7 @@ export async function renderSetup(root, params, app) {
       h('div', { class: 'grid-2' },
         field('日付', date),
         field('大会名', tournament),
-        field('相手校名', opponent),
-        field('YouTube URL', video, '動画との連動は振り返り画面（フェーズ2）で使います')),
+        field('相手校名', opponent)),
       h('section', { class: 'card' },
         h('div', { class: 'card-head' },
           h('h2', null, '自チームの出場メンバー'),
@@ -126,6 +125,9 @@ export async function renderSetup(root, params, app) {
         h('h2', null, '相手の背番号'),
         oppNums,
         h('p', { class: 'field-note' }, 'スペースか「、」で区切ります。記録画面の「＋番号」でも追加できます。')),
+      h('section', { class: 'card' },
+        h('h2', null, 'YouTube（後から入力できます）'),
+        video.el),
       errorBox,
       h('div', { class: 'form-actions' }, h('button', { class: 'btn primary big', type: 'button', onclick: save }, editing ? '保存' : '保存して記録へ'))),
   );

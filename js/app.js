@@ -7,6 +7,7 @@ import { renderRecord } from './views/record.js';
 import { renderSummary } from './views/summary.js';
 import { renderSettings } from './views/settings.js';
 import { renderQuarter } from './views/quarter.js';
+import { renderReview } from './views/review.js';
 
 const root = document.getElementById('app');
 
@@ -34,6 +35,7 @@ function parse(hash) {
     if (sub === 'record') return { view: 'record', gameId: parts[1] };
     if (sub === 'summary') return { view: 'summary', gameId: parts[1] };
     if (sub === 'edit') return { view: 'setup', gameId: parts[1] };
+    if (sub === 'review') return { view: 'review', gameId: parts[1] };
     if (sub === 'quarter' && parts[3]) return { view: 'quarter', gameId: parts[1], quarter: parts[3] };
   }
   return { view: 'home' };
@@ -46,6 +48,7 @@ const VIEWS = {
   summary: renderSummary,
   settings: renderSettings,
   quarter: renderQuarter,
+  review: renderReview,
 };
 
 async function route() {

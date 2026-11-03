@@ -139,6 +139,8 @@ export const DEFAULT_SETTINGS = {
   defenses: DEFAULT_DEFENSES,
   installHintDismissed: false,
   lastBackupAt: null,
+  checklistTemplate: [],
+  rewindSec: 8,
   // AI接続（端末の中だけに保存。バックアップのファイルには入れない）
   workerUrl: '',
   staffPass: '',
@@ -150,6 +152,7 @@ export async function getSettings() {
   const s = { ...DEFAULT_SETTINGS, ...(row ? row.value : {}) };
   if (!Array.isArray(s.defenses) || s.defenses.length === 0) s.defenses = [...DEFAULT_DEFENSES];
   if (!Array.isArray(s.rosterTemplate)) s.rosterTemplate = [];
+  if (!Array.isArray(s.checklistTemplate)) s.checklistTemplate = [];
   return s;
 }
 

@@ -8,6 +8,7 @@ import {
   buildCandidates, buildPayload, acceptAiResponse, pickLocal, localLine, evidenceText, CATEGORY_LABEL,
 } from '../insights.js';
 import { requestInsights, reasonText, isConfigured } from '../ai.js';
+import { insightRecordView, insightMetaText } from './insight-view.js';
 
 export async function renderQuarter(root, params, app) {
   const game = await db.getGame(params.gameId);
@@ -78,19 +79,6 @@ export async function renderQuarter(root, params, app) {
     return (game.insights || []).filter((r) => r.quarter === q).sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  function lineItems(record) {
-    return h('ol', { class: 'insight-lines' }, record.items.map((it) =>
-      h('li', null,
-        h('p', { class: 'insight-line' }, it.line),
-        h('p', { class: 'insight-evidence' }, evidenceText(it.candidate, names)))));
-  }
-
-  function metaText(record) {
-    const d = new Date(record.createdAt);
-    const time = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
-    return `${time}　${record.inProgress ? `${quarterLabel(record.quarter)}途中` : `${quarterLabel(record.quarter)}終了`}`;
-  }
-
   function drawResult(record) {
     if (!record) {
       replace(resultEl, candidates.length
@@ -100,14 +88,7 @@ export async function renderQuarter(root, params, app) {
         : h('p', { class: 'muted' }, '特筆する候補がありません（条件を満たす数字がまだありません）。'));
       return;
     }
-    replace(resultEl,
-      h('p', { class: 'insight-meta' },
-        metaText(record),
-        record.source === 'ai' ? h('span', { class: 'src ai' }, 'AIが候補から選択') : h('span', { class: 'src local' }, '（自動抽出・AIなし）'),
-        record.source === 'local' && record.note ? h('span', { class: 'muted' }, `理由：${record.note}`) : null),
-      lineItems(record),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn big', type: 'button', onclick: () => showBig(record, names) }, '大きく表示')));
+    replace(resultEl, insightRecordView(record, names));
   }
 
   function drawHistory() {
@@ -119,7 +100,7 @@ export async function renderQuarter(root, params, app) {
     replace(historyEl, h('details', null,
       h('summary', null, `この${inProgress ? '時点' : 'クォーター'}の前の結果（${list.length}件）`),
       list.map((r) => h('div', { class: 'history-item' },
-        h('p', { class: 'insight-meta' }, metaText(r), r.source === 'ai' ? ' AI' : '（自動抽出・AIなし）'),
+        h('p', { class: 'insight-meta' }, insightMetaText(r), r.source === 'ai' ? ' AI' : '（自動抽出・AIなし）'),
         h('ul', null, r.items.map((it) => h('li', null, it.line)))))));
   }
 
@@ -187,24 +168,4 @@ export async function renderQuarter(root, params, app) {
         candidateList,
         h('p', { class: 'field-note' }, '数字はすべて端末で計算しています。AIには背番号と数字だけを送り、選手の名前は送りません。'))),
   );
-}
-
-/** 主顧問に見せる用：黒背景・特大文字の全画面 */
-function showBig(record, names) {
-  const close = () => {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
-  };
-  const onKey = (ev) => {
-    if (ev.key === 'Escape') close();
-  };
-  const overlay = h('div', { class: 'bigview', role: 'dialog', 'aria-modal': 'true', 'aria-label': '大きく表示', onclick: close },
-    h('button', { class: 'btn bigview-close', type: 'button', onclick: close }, '閉じる'),
-    h('ol', { class: 'bigview-lines' }, record.items.map((it) =>
-      h('li', null,
-        h('p', { class: 'bv-line' }, it.line),
-        h('p', { class: 'bv-evidence' }, evidenceText(it.candidate, names))))),
-    record.source === 'local' ? h('p', { class: 'bv-note' }, '（自動抽出・AIなし）') : null);
-  document.addEventListener('keydown', onKey);
-  document.body.appendChild(overlay);
 }

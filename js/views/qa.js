@@ -177,8 +177,14 @@ export async function renderQaDetail(root, params, app) {
       detailBody(it, text),
       h('p', { class: 'qa-note' }, NOTE),
       h('nav', { class: 'qa-nav' },
-        prev ? h('a', { class: 'btn', href: `#/qa/${prev.id}` }, icon('back'), prev.title) : h('span'),
-        next ? h('a', { class: 'btn', href: `#/qa/${next.id}` }, next.title, h('span', { class: 'flip' }, icon('back'))) : h('span'))),
+        prev
+          ? h('a', { class: 'btn qa-nav-prev', href: `#/qa/${prev.id}`, 'aria-label': `前の場面：${prev.title}` },
+            icon('back'), h('span', { class: 'qa-nav-label' }, prev.title))
+          : h('span'),
+        next
+          ? h('a', { class: 'btn qa-nav-next', href: `#/qa/${next.id}`, 'aria-label': `次の場面：${next.title}` },
+            h('span', { class: 'qa-nav-label' }, next.title), h('span', { class: 'flip' }, icon('back')))
+          : h('span'))),
   );
   // 画面を離れるときは、入力途中のメモをすぐ保存する
   return () => {

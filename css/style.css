@@ -1321,8 +1321,10 @@ table.zones th, table.zones td { padding: 6px 8px; font-size: 14px; }
 .qa-saved { font-size: 13px; font-weight: 700; }
 .qa-fav .qa-star { font-size: 20px; }
 .qa-nav { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; }
-.qa-nav .btn { max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-flex; }
-.flip { display: inline-flex; transform: rotate(180deg); }
+/* 長いタイトルは末尾を「…」で省略する（文字はボタンの中の span で切る。ボタン自体を中央寄せのまま切ると先頭が欠ける） */
+.qa-nav .btn { max-width: 48%; min-width: 0; justify-content: flex-start; }
+.qa-nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flip { display: inline-flex; flex: 0 0 auto; transform: rotate(180deg); }
 
 /* 図 */
 .dg-figure { margin: 0; }

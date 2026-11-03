@@ -1,6 +1,6 @@
 // 集計画面（SPEC 4章）：ボックススコア、相手チーム、チーム指標、シュートチャート、クォーター別得点、守備隊形別
 import * as db from '../db.js';
-import { h, replace, toast, formatDate } from '../ui.js';
+import { h, replace, toast, formatDate, icon } from '../ui.js';
 import { quarterLabel, sortNumbers, SHOT_TAGS, TEAM_LABEL, describeEvent } from '../model.js';
 import { ZONES, ZONE_LABELS } from '../court.js';
 import {
@@ -50,14 +50,14 @@ export async function renderSummary(root, params, app) {
 
   root.append(
     h('header', { class: 'page-head' },
-      h('a', { class: 'btn', href: '#/' }, 'ホーム'),
+      h('a', { class: 'btn', href: '#/' }, icon('home'), 'ホーム'),
       h('div', { class: 'head-title' },
         h('h1', null, `集計　vs ${game.opponent || '相手'}`),
         h('span', { class: 'muted' }, `${formatDate(game.date)} ${game.tournament || ''}`)),
       h('div', { class: 'head-actions' },
-        h('button', { class: 'btn', type: 'button', onclick: () => exportGame(game) }, '書き出す'),
-        h('a', { class: 'btn', href: `#/game/${game.id}/review` }, '振り返り'),
-        h('a', { class: 'btn primary', href: `#/game/${game.id}/record` }, '記録へ'))),
+        h('button', { class: 'btn', type: 'button', onclick: () => exportGame(game) }, icon('share'), '書き出す'),
+        h('a', { class: 'btn', href: `#/game/${game.id}/review` }, icon('film'), '振り返り'),
+        h('a', { class: 'btn primary', href: `#/game/${game.id}/record` }, icon('pencil'), '記録へ'))),
     h('div', { class: 'page wide' },
       h('div', { class: 'summary-top' },
         h('div', { class: 'big-score' },

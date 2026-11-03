@@ -1,5 +1,5 @@
 // 設定：バックアップ、ホーム画面追加の案内、名簿テンプレート、守備隊形の選択肢、チェック項目、振り返り、AI接続、デモ試合
-import { h, toast, confirmDialog, isStandalone } from '../ui.js';
+import { h, toast, confirmDialog, isStandalone, icon, applyTheme } from '../ui.js';
 import { DEFAULT_DEFENSES, uuid } from '../model.js';
 import { insightEndpoint, testConnection, reasonText } from '../ai.js';
 import { CHECK_METRICS, CHECK_EXAMPLES, DEFAULT_REWIND_SEC, targetText, parseBulkItems } from '../review.js';
@@ -81,7 +81,7 @@ export async function renderSettings(root, params, app) {
 
   root.append(
     h('header', { class: 'page-head' },
-      h('a', { class: 'btn', href: '#/' }, 'ホーム'),
+      h('a', { class: 'btn', href: '#/' }, icon('home'), 'ホーム'),
       h('h1', null, '設定'),
       h('div', { class: 'head-actions' })),
     h('div', { class: 'page form' },
@@ -94,14 +94,15 @@ export async function renderSettings(root, params, app) {
             onclick: async () => {
               if (await exportAll(app)) backupStatus.textContent = lastBackupText(app.settings.lastBackupAt);
             },
-          }, 'バックアップを書き出す'),
+          }, icon('share'), 'バックアップを書き出す'),
           h('button', {
             class: 'btn big', type: 'button',
             onclick: async () => {
               if (await importBackup(app)) app.go('#/');
             },
-          }, 'バックアップを読み込む'),
+          }, icon('download'), 'バックアップを読み込む'),
           backupStatus)),
+      themeCard(app),
       isStandalone()
         ? h('section', { class: 'card' }, h('h2', null, 'ホーム画面から起動しています'), h('p', null, '電波がなくても記録・集計できます。'))
         : installHint(app),
@@ -379,4 +380,27 @@ function checklistEditor(initial) {
       return { items };
     },
   };
+}
+
+/** 画面の配色（ダーク／ライト） */
+function themeCard(app) {
+  const current = () => (app.settings.theme === 'light' ? 'light' : 'dark');
+  const choice = h('div', { class: 'theme-choice', role: 'group', 'aria-label': '画面の配色' });
+  const draw = () => {
+    choice.textContent = '';
+    for (const [value, label] of [['dark', 'ダーク（標準）'], ['light', 'ライト']]) {
+      choice.appendChild(h('button', {
+        class: ['btn', current() === value && 'on'], type: 'button', 'aria-pressed': String(current() === value),
+        onclick: async () => {
+          await app.saveSettings({ ...app.settings, theme: value });
+          draw();
+        },
+      }, label));
+    }
+  };
+  draw();
+  return h('section', { class: 'card' },
+    h('h2', null, '画面の配色'),
+    choice,
+    h('p', { class: 'field-note' }, '明るい体育館で画面が見にくいときはライトにしてください。この iPad だけの設定です。'));
 }

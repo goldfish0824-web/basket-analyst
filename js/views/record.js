@@ -1,7 +1,7 @@
 // 記録画面（SPEC 3章）
 // 左：ハーフコート図＋直近10件のログ　右：自チーム／相手、選手ボタン、プレーボタン　上：クォーター・スコア・ファウル・守備隊形
 import * as db from '../db.js';
-import { h, replace, toast, modal, confirmDialog } from '../ui.js';
+import { h, replace, toast, modal, confirmDialog, icon } from '../ui.js';
 import {
   makeEvent, nextSeq, quarterState, quarterLabel, describeEvent, whoLabel, sortNumbers, uuid,
   TEAM_LABEL, SHOT_TAGS, TO_TAGS, REGULAR_QUARTERS, defenseSide,
@@ -129,10 +129,10 @@ export async function renderRecord(root, params, app) {
     };
     const qButton =
       qs.phase === 'live'
-        ? h('button', { class: 'btn q-btn', type: 'button', onclick: endQuarter }, 'クォーター終了')
+        ? h('button', { class: 'btn q-btn', type: 'button', onclick: endQuarter }, icon('flag'), 'クォーター終了')
         : h('button', { class: 'btn q-btn primary', type: 'button', onclick: () => startQuarter(qs.next) }, `${quarterLabel(qs.next)} 開始`);
     replace(top,
-      h('button', { class: 'btn menu-btn', type: 'button', onclick: openMenu, 'aria-label': 'メニュー' }, 'メニュー'),
+      h('button', { class: 'btn menu-btn', type: 'button', onclick: openMenu, 'aria-label': 'メニュー' }, icon('menu')),
       h('div', { class: 'q-now' }, qText),
       h('div', { class: 'scoreboard', 'aria-label': `スコア 自チーム${score.us} 相手${score.opp}` },
         h('span', { class: 'sb-name us' }, '自チーム'),
@@ -146,7 +146,7 @@ export async function renderRecord(root, params, app) {
         h('span', { class: ['tf-val', tf.opp >= 5 && 'over'] }, `相手 ${tf.opp}`)),
       dfButton('us'),
       dfButton('opp'),
-      h('button', { class: 'btn undo-btn', type: 'button', onclick: undo, disabled: events.length === 0 }, '取り消し'),
+      h('button', { class: 'btn undo-btn', type: 'button', onclick: undo, disabled: events.length === 0 }, icon('undo'), '取り消し'),
       qButton);
   }
 

@@ -1,6 +1,6 @@
 // 場面別Q&A：よくある場面と対処の例（一般的な考え方の下書き。チームの方針は主顧問と決めてメモに残す）
 import { h, replace, icon } from '../ui.js';
-import { QA_ITEMS, QA_CATEGORIES, CATEGORY_LABEL, searchQa, countByCategory } from '../qa.js';
+import { QA_ITEMS, QA_CATEGORIES, CATEGORY_LABEL, searchQa, countByCategory, itemDiagrams } from '../qa.js';
 import { renderDiagram } from './diagram.js';
 
 function sessionGet(k) {
@@ -76,6 +76,7 @@ export async function renderQaList(root, params, app) {
     }
     replace(grid, list.map((it) => {
       const note = (app.settings.qaNotes || {})[it.id];
+      const first = itemDiagrams(it)[0];
       return h('a', { class: 'qa-card', href: `#/qa/${it.id}` },
         h('div', { class: 'qa-card-body' },
           h('div', { class: 'qa-card-top' },
@@ -84,7 +85,7 @@ export async function renderQaList(root, params, app) {
             note ? h('span', { class: 'qa-has-note' }, 'メモあり') : null),
           h('h3', { class: 'qa-title' }, it.title),
           h('p', { class: 'qa-situation' }, it.situation)),
-        it.diagram ? h('div', { class: 'qa-thumb' }, renderDiagram(it.diagram, { thumb: true, caption: it.caption })) : null);
+        first ? h('div', { class: 'qa-thumb' }, renderDiagram(first.diagram, { thumb: true, caption: first.caption })) : null);
     }));
   }
   draw();
@@ -173,9 +174,7 @@ export async function renderQaDetail(root, params, app) {
         h('h1', null, it.title)),
       h('div', { class: 'head-actions' }, star)),
     h('div', { class: 'page wide' },
-      h('div', { class: ['qa-detail', it.diagram && `has-diagram ${it.diagram.court}`] },
-        it.diagram ? h('section', { class: 'card qa-diagram' }, renderDiagram(it.diagram, { caption: it.caption })) : null,
-        text),
+      detailBody(it, text),
       h('p', { class: 'qa-note' }, NOTE),
       h('nav', { class: 'qa-nav' },
         prev ? h('a', { class: 'btn', href: `#/qa/${prev.id}` }, icon('back'), prev.title) : h('span'),
@@ -186,4 +185,20 @@ export async function renderQaDetail(root, params, app) {
     clearTimeout(timer);
     if (pending != null) saveMemo(pending);
   };
+}
+
+/** 図と本文の並び：図1枚（ハーフは左右、オールは上下）／手順ごとの図（上に並べる） */
+function detailBody(it, text) {
+  const diagrams = itemDiagrams(it);
+  if (!diagrams.length) return h('div', { class: 'qa-detail' }, text);
+  if (Array.isArray(it.steps)) {
+    return h('div', { class: 'qa-detail has-diagram steps' },
+      h('section', { class: 'card qa-steps' },
+        diagrams.map((d) => h('div', { class: 'qa-step' }, renderDiagram(d.diagram, { caption: d.caption })))),
+      text);
+  }
+  const d = diagrams[0];
+  return h('div', { class: ['qa-detail', `has-diagram ${d.diagram.court}`] },
+    h('section', { class: 'card qa-diagram' }, renderDiagram(d.diagram, { caption: d.caption })),
+    text);
 }

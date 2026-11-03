@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import {
   QA_ITEMS, QA_CATEGORIES, searchQa, normalizeText, countByCategory, validateDiagram, resolvePoint, legendKinds, courtSize,
   CATEGORY_LABEL, itemDiagrams, unitDiagrams, patternLabel, QA_MOVED, resolveQaId, migrateQaSettings,
+  mirrorText, mirrorDiagram, mirrorItem,
 } from '../js/qa.js';
 
 const byId = (id) => QA_ITEMS.find((i) => i.id === id);
 
-test('場面は43件（重なりを整理）、ID は重複なし、カテゴリは決まったもの', () => {
-  assert.equal(QA_ITEMS.length, 43);
+test('場面は42件（重なりを整理）、ID は重複なし、カテゴリは決まったもの', () => {
+  assert.equal(QA_ITEMS.length, 42);
   const ids = new Set(QA_ITEMS.map((i) => i.id));
-  assert.equal(ids.size, 43);
+  assert.equal(ids.size, 42);
   const cats = new Set(QA_CATEGORIES.map((c) => c.key));
   for (const it of QA_ITEMS) {
     assert.ok(cats.has(it.cat), `${it.id} のカテゴリ ${it.cat}`);
@@ -27,9 +28,18 @@ test('利用者の例の2つの場面が入っている', () => {
   assert.ok(QA_ITEMS.some((i) => i.title.includes('1-2-2オールコートプレス')));
 });
 
-test('ハーフコートのゾーン（2-3・3-2・1-3-1）は対処の例が7つ以上', () => {
-  for (const id of ['zone-23', 'zone-32', 'zone-131']) {
-    assert.ok(QA_ITEMS.find((i) => i.id === id).points.length >= 7, id);
+test('ハーフコートのゾーン（2-3・3-2・1-3-1）は、攻め方ごとのパターンと図（順番の札つき）を持つ', () => {
+  const min = { 'zone-23': 5, 'zone-32': 4, 'zone-131': 3 };
+  for (const [id, n] of Object.entries(min)) {
+    const it = byId(id);
+    assert.ok(it.patterns.length >= n, `${id} のパターン ${it.patterns.length}`);
+    for (const p of it.patterns) {
+      const ds = unitDiagrams(p);
+      assert.equal(ds.length, 1, `${id} ${p.name}`);
+      assert.equal(ds[0].diagram.court, 'half');
+      assert.ok(ds[0].diagram.arrows.some((a) => a.n === 1), `${id} ${p.name} の順番`);
+      assert.ok(p.points[0].startsWith('①'), `${id} ${p.name}`);
+    }
   }
 });
 
@@ -76,7 +86,8 @@ test('パターンのある場面：図の一覧はすべてのパターンの�
   assert.equal(all.length, it.patterns.reduce((n, p) => n + p.steps.length, 0));
   assert.equal(all[0].caption, it.patterns[0].steps[0].caption);
   assert.equal(itemDiagrams(byId('press-221')).length, 3);
-  assert.equal(itemDiagrams(byId('zone-23')).length, 1);
+  assert.equal(itemDiagrams(byId('zone-23')).length, 5);
+  assert.equal(itemDiagrams(byId('man-post-entry')).length, 1);
   assert.equal(itemDiagrams(byId('sp-last')).length, 0);
 });
 
@@ -106,8 +117,8 @@ test('図のデータに問題がない（座標・参照・矢印の種類）',
       assert.ok(d.caption, `${it.id} に図の説明がない`);
     }
   }
-  assert.ok(withDiagram >= 28, `図のある場面は ${withDiagram} 件`);
-  assert.ok(total >= 44, `図は ${total} 枚`);
+  assert.ok(withDiagram >= 27, `図のある場面は ${withDiagram} 件`);
+  assert.ok(total >= 52, `図は ${total} 枚`);
 });
 
 test('図の検査は間違いを見つける', () => {
@@ -159,11 +170,12 @@ test('検索：キーワード（すべて含む）・カテゴリ・お気に�
   // 本文かカテゴリ名に「プレス」を含むものだけ
   assert.ok(press.every((i) => /プレス/.test([i.title, i.situation, ...i.points, ...(i.watch || []), i.caption || '', CATEGORY_LABEL[i.cat]].join(''))));
   const z = searchQa(QA_ITEMS, { query: '２－３ ハイポスト' });
+  assert.ok(searchQa(QA_ITEMS, { query: 'ギャップ' }).some((i) => i.id === 'zone-23'));
   assert.ok(z.some((i) => i.id === 'zone-23'));
   assert.equal(searchQa(QA_ITEMS, { category: 'rebound' }).length, countByCategory(QA_ITEMS).rebound);
   assert.deepEqual(searchQa(QA_ITEMS, { category: 'fav', favorites: ['man-pnr', 'zone-23'] }).map((i) => i.id), ['zone-23', 'man-pnr']);
   assert.equal(searchQa(QA_ITEMS, { query: 'そんなことばはない' }).length, 0);
-  assert.equal(searchQa(QA_ITEMS).length, 43);
+  assert.equal(searchQa(QA_ITEMS).length, 42);
   // パターンの名前・動きも探せる
   assert.ok(searchQa(QA_ITEMS, { query: 'スタッガード' }).some((i) => i.id === 'set-3'));
   assert.deepEqual(searchQa(QA_ITEMS, { query: 'ドリブルで割る' }).map((i) => i.id), ['press-221']);
@@ -205,5 +217,57 @@ test('【2点】のパターン1（ピック＆ロール）は右手のドリブ
   const start = p.steps[1].diagram.offense.find((q) => q[2] === '1');
   assert.ok(drive.to[0] > start[0], 'ドリブルが左から右（中央）へ向かっていない');
   assert.ok(p.points.some((x) => x.includes('右手のドリブル')));
+});
+
+test('左右の入れ替え：説明文（「左右」はそのまま）', () => {
+  assert.equal(mirrorText('左サイドから。1は右手のドリブル（左右反対の形）'), '右サイドから。1は左手のドリブル（左右反対の形）');
+  assert.equal(mirrorText('ボール側（左）のウイング、逆サイド（右）のコーナー'), 'ボール側（右）のウイング、逆サイド（左）のコーナー');
+  assert.equal(mirrorText('ハイポスト'), 'ハイポスト');
+  // 2回で元に戻る
+  const t = '左ウイングで受け、右手で左へ';
+  assert.equal(mirrorText(mirrorText(t)), t);
+});
+
+test('左右の入れ替え：図（ハーフは x、オールは y）。元のデータは変えない', () => {
+  const d = {
+    court: 'half', offense: [[2, 3, '1']], defense: [[4, 4, '1']], ball: 'o1',
+    arrows: [{ kind: 'pass', from: 'o1', to: [4, 5], via: [3, 3], n: 1 }, { kind: 'move', from: 'x1', to: 'o1' }],
+    labels: [{ at: [1, 1], text: '左ウイング' }], areas: [{ points: [[0, 0], [1, 0], [1, 1]], label: 'わな' }],
+    guides: [{ from: [7.5, 0], to: [7.5, 12] }],
+  };
+  const m = mirrorDiagram(d);
+  assert.deepEqual(m.offense, [[13, 3, '1']]);
+  assert.deepEqual(m.defense, [[11, 4, '1']]);
+  assert.deepEqual(m.arrows[0], { kind: 'pass', from: 'o1', to: [11, 5], via: [12, 3], n: 1 });
+  assert.deepEqual(m.arrows[1], { kind: 'move', from: 'x1', to: 'o1' });
+  assert.deepEqual(m.labels, [{ at: [14, 1], text: '右ウイング' }]);
+  assert.deepEqual(m.areas[0].points, [[15, 0], [14, 0], [14, 1]]);
+  assert.deepEqual(m.guides[0], { from: [7.5, 0], to: [7.5, 12] });
+  assert.deepEqual(d.offense, [[2, 3, '1']], '元のデータが変わった');
+  assert.deepEqual(mirrorDiagram(m), d);
+  const f = mirrorDiagram({ court: 'full', offense: [[3, 2, '1']], defense: [], arrows: [] });
+  assert.deepEqual(f.offense, [[3, 13, '1']]);
+});
+
+test('終盤のセットは「左右を反対にする」ができ、図と説明文がそろって入れ替わる', () => {
+  for (const id of ['set-2', 'set-3']) {
+    const it = byId(id);
+    assert.equal(it.mirror, true, id);
+    const m = mirrorItem(it);
+    assert.equal(m.title, it.title);
+    assert.equal(m.patterns.length, it.patterns.length);
+    for (const d of itemDiagrams(m)) assert.deepEqual(validateDiagram(d.diagram), [], id);
+    assert.deepEqual(mirrorItem(m).patterns, it.patterns, `${id} は2回で元に戻る`);
+  }
+  // パターン1（ピック＆ロール）：反対にすると右サイドから、左手のドリブル
+  const p = mirrorItem(byId('set-2')).patterns[0];
+  assert.ok(p.points[0].startsWith('図は右サイドからのスローインで、1が左手でドリブル'));
+  assert.ok(p.steps[0].caption.includes('右ウイング'));
+  const drive = p.steps[1].diagram.arrows.find((a) => a.kind === 'dribble');
+  const start = p.steps[1].diagram.offense.find((q) => q[2] === '1');
+  assert.ok(drive.to[0] < start[0], 'ドリブルが右から左（中央）へ向かっていない');
+  // スローインする3は、反対にすると左サイドの外
+  assert.ok(byId('set-3').patterns[0].steps[0].diagram.offense.find((q) => q[2] === '3')[0] > 15);
+  assert.ok(mirrorItem(byId('set-3')).patterns[0].steps[0].diagram.offense.find((q) => q[2] === '3')[0] < 0);
 });
 

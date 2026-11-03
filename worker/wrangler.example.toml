@@ -1,0 +1,13 @@
+# 単独の Worker として試すときの設定例。wrangler.toml にコピーして name を自分のものにする。
+# APIキーとパスコードはここに書かず、シークレットにする：
+#   npx wrangler secret put ANTHROPIC_API_KEY
+#   npx wrangler secret put STAFF_PASS
+name = "basket-insight"
+main = "index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# MODEL = "claude-sonnet-5-5"        # 既定は claude-haiku-5-5（速さ優先）
+# ALLOWED_ORIGINS = "https://goldfish0824-web.github.io"
+# MAX_TOKENS = "1000"
+# EFFORT = "low"

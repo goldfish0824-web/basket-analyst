@@ -1,6 +1,6 @@
 // 振り返り画面（SPEC 6章）：プレー一覧 → 動画の該当場面へ、チェックポイント、集計・AI特筆データの再表示
 import * as db from '../db.js';
-import { h, replace, toast, formatDate } from '../ui.js';
+import { h, replace, toast, formatDate, icon } from '../ui.js';
 import { describeEvent, quarterLabel, sortNumbers, TEAM_LABEL } from '../model.js';
 import { ZONE_LABELS } from '../court.js';
 import { scoreOf, maxQuarter } from '../stats.js';
@@ -91,7 +91,7 @@ export async function renderReview(root, params, app) {
     const videoError = h('p', { class: 'form-error', role: 'alert' });
     const videoCard = h('details', { class: 'card video-card', open: videos.length === 0 },
       h('summary', null,
-        h('span', { class: 'vc-title' }, '動画'),
+        h('span', { class: 'vc-title' }, icon('film'), '動画'),
         h('span', { class: 'muted' }, videos.length
           ? `${videos.map((v) => `${videoScopeLabel(v.quarter)}（開始 ${formatClock(v.offsetSec || 0)}）`).join('、')}　巻き戻し${rewind}秒`
           : '未登録（YouTube の URL を入れると、各プレーから動画の該当場面を開けます）')),
@@ -169,7 +169,7 @@ export async function renderReview(root, params, app) {
           h('span', { class: 'pr-desc' }, describeEvent(e, ZONE_LABELS), name ? h('span', { class: 'pr-name' }, name) : null),
           h('span', { class: 'pr-def' }, e.defense ? `守備：${e.defense}` : ''),
           link
-            ? h('a', { class: 'btn small pr-video', href: link.url, target: '_blank', rel: 'noopener', 'aria-label': `動画の ${formatClock(link.sec)} から再生` }, `▶ ${formatClock(link.sec)}`)
+            ? h('a', { class: 'btn small pr-video', href: link.url, target: '_blank', rel: 'noopener', 'aria-label': `動画の ${formatClock(link.sec)} から再生` }, icon('play'), formatClock(link.sec))
             : h('span', { class: 'pr-novideo' }, '動画なし'));
       }));
     }
@@ -298,12 +298,12 @@ export async function renderReview(root, params, app) {
 
   root.append(
     h('header', { class: 'page-head' },
-      h('a', { class: 'btn', href: '#/' }, 'ホーム'),
+      h('a', { class: 'btn', href: '#/' }, icon('home'), 'ホーム'),
       h('div', { class: 'head-title' },
         h('h1', null, `振り返り　vs ${game.opponent || '相手'}`),
         h('span', { class: 'muted' }, `${formatDate(game.date)} ${game.tournament || ''}　${TEAM_LABEL.us} ${score.us} − ${score.opp} ${TEAM_LABEL.opp}`)),
       h('div', { class: 'head-actions' },
-        h('a', { class: 'btn', href: `#/game/${game.id}/record` }, '記録へ'))),
+        h('a', { class: 'btn', href: `#/game/${game.id}/record` }, icon('pencil'), '記録へ'))),
     h('div', { class: 'page wide' }, tabBar, content),
   );
   drawTabs();

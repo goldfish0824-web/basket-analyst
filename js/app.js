@@ -1,6 +1,6 @@
 // 画面の切り替え（#/ … のハッシュで）と起動処理。
 import * as db from './db.js';
-import { h, replace, toast } from './ui.js';
+import { h, replace, toast, applyTheme } from './ui.js';
 import { renderHome } from './views/home.js';
 import { renderSetup } from './views/setup.js';
 import { renderRecord } from './views/record.js';
@@ -15,6 +15,7 @@ const app = {
   settings: null,
   async saveSettings(next) {
     app.settings = next;
+    applyTheme(next.theme);
     await db.putSettings(next);
   },
   go(hash) {
@@ -91,6 +92,7 @@ async function start() {
       h('p', { class: 'muted' }, String((err && err.message) || err))));
     return;
   }
+  applyTheme(app.settings.theme);
   db.requestPersist();
   window.addEventListener('hashchange', route);
   await route();

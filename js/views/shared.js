@@ -35,7 +35,7 @@ export function lastBackupText(ms) {
 export async function exportAll(app) {
   const [games, events] = await Promise.all([db.listGames(), db.listAllEvents()]);
   // 端末ごとの状態と、AI接続の URL・パスコードは書き出さない
-  const { lastBackupAt, installHintDismissed, workerUrl, staffPass, ...settingsToSave } = app.settings;
+  const { lastBackupAt, installHintDismissed, workerUrl, staffPass, theme, ...settingsToSave } = app.settings;
   const data = buildBackup({ games, events, settings: settingsToSave });
   const ok = await saveJsonFile(data, backupFileName(games));
   if (ok) {

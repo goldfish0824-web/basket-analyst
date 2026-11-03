@@ -1,6 +1,6 @@
 // 試合設定：日付、大会名、相手校名、自チームの出場メンバー、相手の背番号、YouTube URL
 import * as db from '../db.js';
-import { h, toast, todayString } from '../ui.js';
+import { h, toast, todayString, icon } from '../ui.js';
 import { newGame, sortNumbers, parseNumberList } from '../model.js';
 import { rosterEditor } from './shared.js';
 import { videoEditor } from './video-editor.js';
@@ -86,7 +86,7 @@ export async function renderSetup(root, params, app) {
 
   root.append(
     h('header', { class: 'page-head' },
-      h('a', { class: 'btn', href: editing ? `#/game/${editing.id}/record` : '#/' }, '戻る'),
+      h('a', { class: 'btn', href: editing ? `#/game/${editing.id}/record` : '#/' }, icon('back'), '戻る'),
       h('h1', null, editing ? '試合設定' : '新しい試合'),
       h('div', { class: 'head-actions' }, h('button', { class: 'btn primary', type: 'button', onclick: save }, editing ? '保存' : '保存して記録へ'))),
     h('div', { class: 'page form' },

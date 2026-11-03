@@ -1,5 +1,5 @@
 // 保存した AI特筆データの表示（クォーター終了画面と振り返り画面で共通）と「大きく表示」
-import { h } from '../ui.js';
+import { h, icon } from '../ui.js';
 import { quarterLabel } from '../model.js';
 import { evidenceText } from '../insights.js';
 
@@ -30,7 +30,7 @@ export function insightRecordView(record, names) {
     insightMeta(record),
     insightLines(record, names),
     h('div', { class: 'row' },
-      h('button', { class: 'btn big', type: 'button', onclick: () => showBig(record, names) }, '大きく表示')));
+      h('button', { class: 'btn big', type: 'button', onclick: () => showBig(record, names) }, icon('expand'), '大きく表示')));
 }
 
 /** 主顧問に見せる用：黒背景・特大文字の全画面。どこをタップしても閉じる */

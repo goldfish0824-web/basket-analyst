@@ -1,6 +1,6 @@
 // ホーム：試合一覧（新しい順）、新規試合、設定、バックアップ
 import * as db from '../db.js';
-import { h, modal, confirmDialog, toast, formatDate } from '../ui.js';
+import { h, modal, confirmDialog, toast, formatDate, icon, brandMark } from '../ui.js';
 import { sortGames, quarterState, quarterLabel } from '../model.js';
 import { scoreOf } from '../stats.js';
 import { installHint, exportAll, exportGame, createDemoGame, lastBackupText } from './shared.js';
@@ -29,14 +29,16 @@ export async function renderHome(root, params, app) {
             toast('デモ試合を作りました');
             app.go(`#/game/${g.id}/summary`);
           },
-        }, 'デモ試合を作る'));
+        }, icon('sparkle'), 'デモ試合を作る'));
 
   root.append(
     h('header', { class: 'page-head' },
-      h('h1', null, 'バスケ・アナリスト'),
+      h('div', { class: 'brand' },
+        brandMark(),
+        h('div', { class: 'brand-text' }, h('h1', null, 'バスケ・アナリスト'), h('span', { class: 'brand-sub' }, '試合記録と分析'))),
       h('div', { class: 'head-actions' },
-        h('a', { class: 'btn', href: '#/settings' }, '設定'),
-        h('a', { class: 'btn primary', href: '#/new' }, '＋ 新しい試合'))),
+        h('a', { class: 'btn', href: '#/settings' }, icon('settings'), '設定'),
+        h('a', { class: 'btn primary', href: '#/new' }, icon('plus'), '新しい試合'))),
     h('div', { class: 'page' },
       installHint(app, { compact: true }),
       h('section', { class: 'backup-bar' },
@@ -46,18 +48,18 @@ export async function renderHome(root, params, app) {
           onclick: async () => {
             if (await exportAll(app)) backupStatus.textContent = lastBackupText(app.settings.lastBackupAt);
           },
-        }, 'すべて書き出す')),
-      h('h2', { class: 'section-title' }, '試合一覧'),
+        }, icon('share'), 'すべて書き出す')),
+      h('h2', { class: 'section-title' }, '試合一覧', games.length ? h('span', { class: 'count' }, games.length) : null),
       list),
   );
 }
 
-function statusText(info) {
-  if (!info || info.count === 0) return '記録なし';
+function status(info) {
+  if (!info || info.count === 0) return { text: '記録なし', cls: '' };
   const { qs } = info;
-  if (qs.phase === 'pre') return '試合前';
-  if (qs.phase === 'live') return `${quarterLabel(qs.quarter)} 記録中`;
-  return `${quarterLabel(qs.quarter)} 終了`;
+  if (qs.phase === 'pre') return { text: '試合前', cls: '' };
+  if (qs.phase === 'live') return { text: `${quarterLabel(qs.quarter)} 記録中`, cls: 'live' };
+  return { text: `${quarterLabel(qs.quarter)} 終了`, cls: 'done' };
 }
 
 function gameCard(g, info, app) {
@@ -94,13 +96,13 @@ function gameCard(g, info, app) {
     h('a', { class: 'game-main', href: `#/game/${g.id}/record` },
       h('div', { class: 'game-date' }, formatDate(g.date), g.isDemo ? h('span', { class: 'tag' }, 'デモ') : null),
       h('div', { class: 'game-title' }, `vs ${g.opponent || '相手未入力'}`),
-      h('div', { class: 'game-sub' }, g.tournament || '', ' ', h('span', { class: 'muted' }, statusText(info)))),
+      h('div', { class: 'game-sub' }, g.tournament ? h('span', null, g.tournament) : null, h('span', { class: ['status', status(info).cls] }, status(info).text))),
     h('div', { class: 'game-score' },
       h('span', { class: 'us' }, score.us), h('span', { class: 'sep' }, '−'), h('span', { class: 'opp' }, score.opp)),
     h('div', { class: 'game-actions' },
-      h('a', { class: 'btn', href: `#/game/${g.id}/record` }, '記録'),
-      h('a', { class: 'btn', href: `#/game/${g.id}/summary` }, '集計'),
-      h('a', { class: 'btn', href: `#/game/${g.id}/review` }, '振り返り'),
-      h('button', { class: 'btn', type: 'button', 'aria-label': 'その他の操作', onclick: more }, '…')),
+      h('a', { class: 'btn', href: `#/game/${g.id}/record` }, icon('pencil'), '記録'),
+      h('a', { class: 'btn', href: `#/game/${g.id}/summary` }, icon('chart'), '集計'),
+      h('a', { class: 'btn', href: `#/game/${g.id}/review` }, icon('film'), '振り返り'),
+      h('button', { class: 'btn', type: 'button', 'aria-label': 'その他の操作', onclick: more }, icon('more'))),
   );
 }

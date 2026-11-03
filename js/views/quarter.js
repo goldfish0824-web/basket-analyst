@@ -1,7 +1,7 @@
 // クォーター終了画面（SPEC 5-2）：そのクォーターと累計のスコア、チームファウル、ファウルトラブルの選手、AI特筆データ
 // タイムアウト中（クォーターの途中）にも同じ画面で、その時点までの数字を出す。
 import * as db from '../db.js';
-import { h, replace, toast, formatDate } from '../ui.js';
+import { h, replace, toast, formatDate, icon } from '../ui.js';
 import { quarterState, quarterLabel, uuid } from '../model.js';
 import { scoreOf, scoreByQuarter, teamFouls } from '../stats.js';
 import {
@@ -73,7 +73,7 @@ export async function renderQuarter(root, params, app) {
   const statusEl = h('p', { class: 'ai-status', 'aria-live': 'polite' });
   const resultEl = h('div', { class: 'ai-result' });
   const historyEl = h('div', { class: 'ai-history' });
-  const runBtn = h('button', { class: 'btn primary big ai-run', type: 'button', onclick: run, disabled: candidates.length === 0 }, 'AI特筆データ');
+  const runBtn = h('button', { class: 'btn primary big ai-run', type: 'button', onclick: run, disabled: candidates.length === 0 }, icon('sparkle'), h('span', { class: 'ai-run-label' }, 'AI特筆データ'));
 
   function savedForQuarter() {
     return (game.insights || []).filter((r) => r.quarter === q).sort((a, b) => b.createdAt - a.createdAt);
@@ -134,14 +134,14 @@ export async function renderQuarter(root, params, app) {
       toast('結果を保存できませんでした', { kind: 'error' });
     }
     statusEl.textContent = '';
-    runBtn.textContent = 'もう一度（AI特筆データ）';
+    runBtn.querySelector('.ai-run-label').textContent = 'もう一度（AI特筆データ）';
     runBtn.disabled = false;
     drawResult(record);
     drawHistory();
   }
 
   const latest = savedForQuarter()[0];
-  if (latest) runBtn.textContent = 'もう一度（AI特筆データ）';
+  if (latest) runBtn.querySelector('.ai-run-label').textContent = 'もう一度（AI特筆データ）';
   drawResult(latest);
   drawHistory();
 
@@ -153,11 +153,11 @@ export async function renderQuarter(root, params, app) {
 
   root.append(
     h('header', { class: 'page-head' },
-      h('a', { class: 'btn', href: `#/game/${game.id}/record` }, '記録へ'),
+      h('a', { class: 'btn', href: `#/game/${game.id}/record` }, icon('back'), '記録へ'),
       h('div', { class: 'head-title' },
         h('h1', null, title),
         h('span', { class: 'muted' }, `vs ${game.opponent || '相手'}　${formatDate(game.date)}`)),
-      h('div', { class: 'head-actions' }, h('a', { class: 'btn', href: `#/game/${game.id}/summary` }, '集計'))),
+      h('div', { class: 'head-actions' }, h('a', { class: 'btn', href: `#/game/${game.id}/summary` }, icon('chart'), '集計'))),
     h('div', { class: 'page wide quarter-page' },
       scoreCard,
       h('section', { class: 'card q-ai' },

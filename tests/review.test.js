@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   parseYouTubeId, youtubeUrlAt, parseClock, formatClock, quarterStartTs, videoFor, videoSeconds, videoLink,
   filterPlays, elapsedText, metricValue, evaluateTarget, targetText, mergeChecklist, CHECK_METRICS, CHECK_EXAMPLES,
-  videoQuarterOptions, videoScopeLabel, PLAY_KINDS,
+  videoQuarterOptions, videoScopeLabel, PLAY_KINDS, isActiveItem, parseBulkItems,
 } from '../js/review.js';
 import { generateDemo } from '../js/demo.js';
 import { teamBox } from '../js/stats.js';
@@ -157,4 +157,43 @@ test('チェック項目の例と動画の対象', () => {
   assert.deepEqual(videoQuarterOptions().map((o) => o.label), ['試合全体', '1Q', '2Q', '3Q', '4Q', '延長1', '延長2']);
   assert.equal(videoScopeLabel(null), '試合全体');
   assert.equal(videoScopeLabel(5), '延長1');
+});
+
+test('設定で「対象」の項目だけを試合のチェックに使う', () => {
+  const template = [
+    { id: 't1', label: 'ボックスアウト', target: null, active: true },
+    { id: 't2', label: 'ヘルプの位置', target: null, active: false },
+    { id: 't3', label: '古いデータ（active なし）', target: null },
+  ];
+  assert.ok(isActiveItem(template[0]));
+  assert.ok(!isActiveItem(template[1]));
+  assert.ok(isActiveItem(template[2]));
+  assert.deepEqual(mergeChecklist([], template).items.map((i) => i.itemId), ['t1', 't3']);
+  // 評価済みの試合は、そのとき評価した項目のまま（あとで対象から外しても消えない）
+  const saved = mergeChecklist([{ itemId: 't2', label: 'ヘルプの位置', target: null, mark: '×', memo: '' }], template);
+  assert.deepEqual(saved.items.map((i) => i.itemId), ['t2']);
+  // 対象でまだ試合にないものだけを「追加できる」に出す
+  assert.deepEqual(saved.missing.map((t) => t.id), ['t1', 't3']);
+});
+
+test('まとめて追加：1行に1項目、行頭の記号や番号は外し、重複は飛ばす', () => {
+  const text = [
+    '・ボックスアウト',
+    '- ヘルプの位置',
+    '1. トランジションで3線を走る',
+    '２）スクリーンのかけ方',
+    '①声を出す',
+    '',
+    '   ',
+    'ボックスアウト',
+    'すでにある項目',
+    '  リバウンドに3人入る  ',
+  ].join('\n');
+  const r = parseBulkItems(text, ['すでにある項目']);
+  assert.deepEqual(r.labels, ['ボックスアウト', 'ヘルプの位置', 'トランジションで3線を走る', 'スクリーンのかけ方', '声を出す', 'リバウンドに3人入る']);
+  assert.equal(r.skipped, 2);
+  // 「3線」のように数字で始まる項目名でも、区切り記号が続かなければそのまま
+  assert.deepEqual(parseBulkItems('3線を走る').labels, ['3線を走る']);
+  assert.equal(parseBulkItems('a'.repeat(60)).labels[0].length, 40);
+  assert.deepEqual(parseBulkItems('').labels, []);
 });

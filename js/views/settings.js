@@ -2,7 +2,7 @@
 import { h, toast, confirmDialog, isStandalone } from '../ui.js';
 import { DEFAULT_DEFENSES, uuid } from '../model.js';
 import { insightEndpoint, testConnection, reasonText } from '../ai.js';
-import { CHECK_METRICS, CHECK_EXAMPLES, DEFAULT_REWIND_SEC, targetText } from '../review.js';
+import { CHECK_METRICS, CHECK_EXAMPLES, DEFAULT_REWIND_SEC, targetText, parseBulkItems } from '../review.js';
 import {
   installHint, exportAll, importBackup, createDemoGame, rosterEditor, lastBackupText,
 } from './shared.js';
@@ -150,7 +150,7 @@ export async function renderSettings(root, params, app) {
           }, '初期値に戻す'))),
       h('section', { class: 'card' },
         h('h2', null, 'チェック項目（振り返りのチェックポイント）'),
-        h('p', { class: 'field-note' }, '項目は自由に追加・編集・並べ替えできます。数字と結びつけられる項目は目標を入れると、試合の数字から自動で ◯／× を出します。'),
+        h('p', { class: 'field-note' }, '項目は自由に追加・編集・並べ替えできます。「対象」にチェックを入れた項目だけが、振り返り画面のチェックポイントに出ます（評価済みの試合は、評価したときの項目のまま）。数字と結びつけられる項目は目標を入れると、試合の数字から自動で ◯／× を出します。'),
         checklist.el,
         checkError,
         h('div', { class: 'row' },
@@ -239,11 +239,39 @@ export async function renderSettings(root, params, app) {
   );
 }
 
-/** チェック項目のテンプレートを編集する部品 */
+/**
+ * チェック項目のテンプレートを編集する部品。
+ * 項目は多くてもよい（50程度）。「対象」に入れた項目だけが振り返り画面のチェックポイントに出る。
+ */
 function checklistEditor(initial) {
   const rows = h('div', { class: 'check-rows' });
+  const countEl = h('span', { class: 'ck-count' });
+  const dirtyEl = h('span', { class: 'ck-dirty', 'aria-live': 'polite' });
+  const onlyActive = h('input', { type: 'checkbox', onchange: () => applyFilter() });
+  const bulkText = h('textarea', { class: 'ck-bulk', rows: '6', placeholder: '例：\nボックスアウト\nヘルプの位置\nトランジションで3線を走る', 'aria-label': 'まとめて追加する項目（1行に1項目）' });
+  const bulkStatus = h('span', { class: 'muted' });
 
-  const addRow = (item = { id: uuid(), label: '', target: null }) => {
+  const markDirty = () => {
+    dirtyEl.textContent = '保存していない変更があります';
+  };
+  const updateCount = () => {
+    const all = rows.querySelectorAll('.check-row');
+    const on = [...all].filter((r) => r.querySelector('.ck-active').checked).length;
+    countEl.textContent = `対象 ${on}／全 ${all.length}項目`;
+  };
+  const applyFilter = () => {
+    for (const r of rows.querySelectorAll('.check-row')) {
+      r.hidden = onlyActive.checked && !r.querySelector('.ck-active').checked;
+    }
+  };
+  const changed = () => {
+    markDirty();
+    updateCount();
+    applyFilter();
+  };
+
+  const addRow = (item = { id: uuid(), label: '', target: null, active: true }) => {
+    const active = h('input', { type: 'checkbox', class: 'ck-active', checked: item.active !== false, 'aria-label': '対象にする' });
     const label = h('input', { type: 'text', class: 'ck-label', value: item.label || '', placeholder: '例：ボックスアウト', maxlength: '40', 'aria-label': '項目名' });
     const metric = h('select', { class: 'ck-metric', 'aria-label': '目標にする数字' },
       h('option', { value: '' }, '目標なし（◯△×で評価）'),
@@ -255,34 +283,83 @@ function checklistEditor(initial) {
       h('option', { value: 'le', selected: !item.target || item.target.op !== 'ge' }, '以下'),
       h('option', { value: 'ge', selected: item.target && item.target.op === 'ge' }, '以上'));
     const targetBox = h('span', { class: 'ck-target' }, value, op);
+    const row = h('div', { class: 'check-row', dataset: { id: item.id } },
+      h('label', { class: 'ck-active-wrap', title: '対象にする' }, active),
+      label, metric, targetBox,
+      h('button', { class: 'btn small', type: 'button', 'aria-label': '上へ', onclick: () => { if (row.previousElementSibling) { rows.insertBefore(row, row.previousElementSibling); markDirty(); } } }, '↑'),
+      h('button', { class: 'btn small', type: 'button', 'aria-label': '下へ', onclick: () => { if (row.nextElementSibling) { rows.insertBefore(row.nextElementSibling, row); markDirty(); } } }, '↓'),
+      h('button', { class: 'btn small', type: 'button', 'aria-label': 'この項目を削除', onclick: () => { row.remove(); changed(); } }, '削除'));
     const sync = () => {
       targetBox.style.visibility = metric.value ? 'visible' : 'hidden';
+      row.classList.toggle('inactive', !active.checked);
     };
     metric.addEventListener('change', sync);
+    active.addEventListener('change', () => {
+      sync();
+      changed();
+    });
     sync();
-    const row = h('div', { class: 'check-row', dataset: { id: item.id } },
-      label, metric, targetBox,
-      h('button', { class: 'btn small', type: 'button', 'aria-label': '上へ', onclick: () => row.previousElementSibling && rows.insertBefore(row, row.previousElementSibling) }, '↑'),
-      h('button', { class: 'btn small', type: 'button', 'aria-label': '下へ', onclick: () => row.nextElementSibling && rows.insertBefore(row.nextElementSibling, row) }, '↓'),
-      h('button', { class: 'btn small', type: 'button', 'aria-label': 'この項目を削除', onclick: () => row.remove() }, '削除'));
     rows.appendChild(row);
     return row;
   };
 
+  const setAll = (on) => {
+    for (const r of rows.querySelectorAll('.check-row')) {
+      const cb = r.querySelector('.ck-active');
+      cb.checked = on;
+      r.classList.toggle('inactive', !on);
+    }
+    changed();
+  };
+
+  const currentLabels = () => [...rows.querySelectorAll('.ck-label')].map((i) => i.value.trim()).filter(Boolean);
+
   for (const it of initial) addRow(it);
+  updateCount();
+
+  // 入力したら「保存していない変更」を出す
+  rows.addEventListener('input', markDirty);
 
   const el = h('div', { class: 'checklist-editor' },
+    h('div', { class: 'ck-toolbar' },
+      countEl,
+      h('button', { class: 'btn small', type: 'button', onclick: () => setAll(true) }, 'すべて対象にする'),
+      h('button', { class: 'btn small', type: 'button', onclick: () => setAll(false) }, 'すべて対象から外す'),
+      h('label', { class: 'check' }, onlyActive, '対象だけ表示')),
+    h('div', { class: 'ck-head' }, h('span', null, '対象'), h('span', null, '項目名と目標（目標は数字と結びつける項目だけ）')),
     rows,
-    h('button', { class: 'btn', type: 'button', onclick: () => addRow().querySelector('input').focus() }, '＋ 項目を追加'));
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', type: 'button', onclick: () => { onlyActive.checked = false; applyFilter(); addRow().querySelector('.ck-label').focus(); changed(); } }, '＋ 項目を追加')),
+    h('details', { class: 'ck-bulk-box' },
+      h('summary', null, 'まとめて追加（1行に1項目）'),
+      h('p', { class: 'field-note' }, '主顧問と決めた項目の一覧をコピーして貼り付けられます。行頭の「・」「1.」などは外します。同じ名前の項目は追加しません。'),
+      bulkText,
+      h('div', { class: 'row' },
+        h('button', {
+          class: 'btn', type: 'button',
+          onclick: () => {
+            const r = parseBulkItems(bulkText.value, currentLabels());
+            for (const label of r.labels) addRow({ id: uuid(), label, target: null, active: true });
+            bulkText.value = '';
+            bulkStatus.textContent = `${r.labels.length}件追加しました${r.skipped ? `（同じ名前の ${r.skipped}件は飛ばしました）` : ''}。「チェック項目を保存」で保存します。`;
+            changed();
+          },
+        }, '追加'),
+        bulkStatus)),
+    dirtyEl);
 
   return {
     el,
     setItems(items) {
       rows.textContent = '';
       for (const it of items) addRow(it);
+      dirtyEl.textContent = '';
+      updateCount();
+      applyFilter();
     },
     addExamples() {
-      for (const ex of CHECK_EXAMPLES) addRow({ id: uuid(), label: ex.label, target: ex.target ? { ...ex.target } : null });
+      for (const ex of CHECK_EXAMPLES) addRow({ id: uuid(), label: ex.label, target: ex.target ? { ...ex.target } : null, active: true });
+      changed();
     },
     read() {
       const items = [];
@@ -297,7 +374,7 @@ function checklistEditor(initial) {
           if (valueText === '' || !Number.isFinite(value)) return { error: `目標の数を入れてください（${label || '名前なし'}）` };
           target = { key, op: row.querySelector('.ck-op').value, value };
         }
-        items.push({ id: row.dataset.id, label: label || targetText(target), target });
+        items.push({ id: row.dataset.id, label: label || targetText(target), target, active: row.querySelector('.ck-active').checked });
       }
       return { items };
     },

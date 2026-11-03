@@ -244,7 +244,9 @@ export async function renderReview(root, params, app) {
     if (!items.length) {
       return h('section', { class: 'card' },
         h('h2', null, 'チェックポイント'),
-        h('p', null, 'チェック項目がありません。「設定」→「チェック項目」で作ります（項目は主顧問と相談して決める前提です）。'),
+        h('p', null, (app.settings.checklistTemplate || []).length
+          ? '対象のチェック項目がありません。「設定」→「チェック項目」で、この振り返りで使う項目の「対象」にチェックを入れます。'
+          : 'チェック項目がありません。「設定」→「チェック項目」で作ります（項目は主顧問と相談して決める前提です）。'),
         h('a', { class: 'btn', href: '#/settings' }, '設定を開く'));
     }
     drawItems();
@@ -253,7 +255,7 @@ export async function renderReview(root, params, app) {
       h('div', { class: 'card-head' }, h('h2', null, 'チェックポイント'), summaryEl),
       merged.missing.length
         ? h('div', { class: 'notice small-notice' },
-          `テンプレートに、この試合にない項目が ${merged.missing.length}件あります。`,
+          `設定で対象にした項目のうち、この試合にない項目が ${merged.missing.length}件あります。`,
           h('button', {
             class: 'btn small', type: 'button',
             onclick: async () => {

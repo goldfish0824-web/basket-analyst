@@ -254,16 +254,47 @@ export function evaluateTarget(target, events) {
 
 export const MARKS = ['◯', '△', '×'];
 
+/** 設定で「対象」に入っている項目か（active が無い古いデータは対象として扱う） */
+export function isActiveItem(item) {
+  return !!item && item.active !== false;
+}
+
 /**
- * 試合のチェック（game.checklist）とテンプレートを合わせる。
- * 試合に保存済みならその内容（項目名・目標は評価したときのまま）を使い、テンプレートにしかない項目は missing に入れる。
+ * 試合のチェック（game.checklist）とテンプレートを合わせる。テンプレートは「対象」の項目だけを使う。
+ * 試合に保存済みならその内容（項目名・目標は評価したときのまま）を使い、
+ * 対象の項目でまだ試合にないものは missing に入れる。
  */
 export function mergeChecklist(gameChecklist = [], template = []) {
+  const active = template.filter(isActiveItem);
   if (!gameChecklist.length) {
-    return { items: template.map((t) => ({ itemId: t.id, label: t.label, target: t.target || null, mark: null, memo: '' })), missing: [], saved: false };
+    return { items: active.map((t) => ({ itemId: t.id, label: t.label, target: t.target || null, mark: null, memo: '' })), missing: [], saved: false };
   }
   const have = new Set(gameChecklist.map((c) => c.itemId));
-  return { items: gameChecklist.map((c) => ({ ...c })), missing: template.filter((t) => !have.has(t.id)), saved: true };
+  return { items: gameChecklist.map((c) => ({ ...c })), missing: active.filter((t) => !have.has(t.id)), saved: true };
+}
+
+/**
+ * 「まとめて追加」の文字（1行に1項目）を項目名の一覧にする。
+ * 行頭の「・」「-」「1.」「①」などは外す。空行・同じ名前・すでにある名前は飛ばす。
+ */
+export function parseBulkItems(text, existingLabels = []) {
+  const seen = new Set(existingLabels.map((l) => String(l).trim()));
+  const labels = [];
+  let skipped = 0;
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const label = raw
+      .replace(/^[\s　]*([・\-*•●○◯□■▪︎]|[0-9０-９]+[.)．、）]|[①-⑳])[\s　]*/, '')
+      .trim()
+      .slice(0, 40);
+    if (!label) continue;
+    if (seen.has(label)) {
+      skipped += 1;
+      continue;
+    }
+    seen.add(label);
+    labels.push(label);
+  }
+  return { labels, skipped };
 }
 
 /** チェック項目の例（SPEC 6-2 の例。設定画面の「例を入れる」で使う） */

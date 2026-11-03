@@ -863,3 +863,23 @@ table.zones th, table.zones td { padding: 5px 8px; font-size: 14px; }
   .pr-time, .pr-def { display: none; }
   .check-row { grid-template-columns: 1fr 1fr; }
 }
+
+/* 設定：チェック項目（対象の選択・まとめて追加） */
+.ck-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ck-count { font-weight: 800; font-variant-numeric: tabular-nums; margin-right: 8px; }
+.ck-head { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.check-row { grid-template-columns: 52px minmax(0, 1.2fr) minmax(0, 1fr) 170px auto auto auto; }
+.ck-active-wrap { display: flex; align-items: center; justify-content: center; min-height: var(--tap); min-width: var(--tap); cursor: pointer; }
+.ck-active { width: 26px; height: 26px; }
+.check-row.inactive .ck-label { color: var(--muted); background: var(--surface-2); }
+.ck-bulk-box { margin-top: 10px; border-top: 1px solid var(--line); }
+.ck-bulk-box summary { min-height: var(--tap); display: flex; align-items: center; cursor: pointer; font-weight: 700; color: var(--ink-2); }
+.ck-bulk { width: 100%; font-size: 17px; border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.ck-dirty { display: block; min-height: 1.5em; margin-top: 6px; color: var(--crit); font-weight: 700; }
+@media (max-width: 1100px) {
+  .check-row { grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1fr) 150px auto auto auto; }
+}
+@media (max-width: 760px) {
+  .check-row { grid-template-columns: 48px 1fr; }
+}
+.check-row[hidden] { display: none; }

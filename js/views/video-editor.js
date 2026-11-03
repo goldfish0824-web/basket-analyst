@@ -46,7 +46,9 @@ export function videoEditor(initial = [], { maxQuarter = 4 } = {}) {
     rows,
     h('button', { class: 'btn', type: 'button', onclick: () => addRow().querySelector('input').focus() }, '＋ 動画を追加'),
     h('p', { class: 'field-note' },
-      '「開始の位置」は、試合全体の動画なら試合開始（1Q開始）、クォーターごとの動画ならそのクォーター開始が、動画の何分何秒かを入れます。対応する形式：youtube.com/watch?v=…、youtu.be/…、youtube.com/live/…'));
+      '「開始の位置」は、試合全体の動画なら試合開始（1Q開始）、クォーターごとの動画ならそのクォーター開始が、動画の何分何秒かを入れます。対応する形式：youtube.com/watch?v=…、youtu.be/…、youtube.com/live/…'),
+    h('p', { class: 'field-note' },
+      'ずれが大きいクォーターがあるときは、同じ URL を対象「3Q」などでもう1行追加し、そのクォーター開始の位置を入れると、そのクォーターだけ合わせ直せます。'));
 
   return {
     el,

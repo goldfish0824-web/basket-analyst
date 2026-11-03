@@ -2,6 +2,7 @@
 import { h, replace, icon } from '../ui.js';
 import {
   QA_ITEMS, QA_CATEGORIES, CATEGORY_LABEL, searchQa, countByCategory, itemDiagrams, unitDiagrams, patternLabel, resolveQaId,
+  mirrorItem,
 } from '../qa.js';
 import { renderDiagram } from './diagram.js';
 
@@ -159,22 +160,48 @@ export async function renderQaDetail(root, params, app) {
   });
   memo.value = (app.settings.qaNotes || {})[it.id] || '';
 
-  const text = h('div', { class: 'qa-text' },
+  const memoCard = h('section', { class: 'card' },
+    h('div', { class: 'card-head' }, h('h2', null, 'チームのメモ'), saved),
+    memo,
+    h('p', { class: 'field-note' }, 'この iPad に保存し、全データのバックアップにも入ります。'));
+  const textFor = (view) => h('div', { class: 'qa-text' },
     h('section', { class: 'card' },
       h('h2', null, '状況'),
-      h('p', { class: 'qa-situation-full' }, it.situation)),
+      h('p', { class: 'qa-situation-full' }, view.situation)),
     h('section', { class: 'card' },
-      h('h2', null, Array.isArray(it.patterns) ? 'どのパターンでも' : '対処の例'),
-      h('ol', { class: 'qa-points' }, it.points.map((p) => h('li', null, p)))),
-    it.watch && it.watch.length
+      h('h2', null, Array.isArray(view.patterns) ? 'どのパターンでも' : '対処の例'),
+      h('ol', { class: 'qa-points' }, view.points.map((p) => h('li', null, p)))),
+    view.watch && view.watch.length
       ? h('section', { class: 'card' },
         h('h2', null, 'アプリで見る数字'),
-        h('ul', { class: 'qa-watch' }, it.watch.map((w) => h('li', null, icon('chart'), w))))
+        h('ul', { class: 'qa-watch' }, view.watch.map((w) => h('li', null, icon('chart'), w))))
       : null,
-    h('section', { class: 'card' },
-      h('div', { class: 'card-head' }, h('h2', null, 'チームのメモ'), saved),
-      memo,
-      h('p', { class: 'field-note' }, 'この iPad に保存し、全データのバックアップにも入ります。')));
+    memoCard);
+
+  // 左右を反対にする（終盤のセットなど。開いている間だけ覚える）
+  const mirrorKey = `qaMirror:${it.id}`;
+  let mirrored = it.mirror === true && sessionGet(mirrorKey) === '1';
+  const body = h('div');
+  const mirrorBtn = it.mirror === true
+    ? h('button', {
+      class: 'btn qa-mirror', type: 'button',
+      onclick: () => {
+        mirrored = !mirrored;
+        sessionSet(mirrorKey, mirrored ? '1' : '0');
+        draw();
+      },
+    })
+    : null;
+  function draw() {
+    const view = mirrored ? mirrorItem(it) : it;
+    if (mirrorBtn) {
+      mirrorBtn.classList.toggle('on', mirrored);
+      mirrorBtn.setAttribute('aria-pressed', String(mirrored));
+      replace(mirrorBtn, icon('swap'), mirrored ? '左右を元に戻す' : '左右を反対にする');
+    }
+    replace(body, detailBody(view, textFor(view), mirrorBtn, mirrored));
+  }
+  draw();
 
   root.append(
     h('header', { class: 'page-head' },
@@ -184,7 +211,7 @@ export async function renderQaDetail(root, params, app) {
         h('h1', null, it.title)),
       h('div', { class: 'head-actions' }, star)),
     h('div', { class: 'page wide' },
-      detailBody(it, text),
+      body,
       h('p', { class: 'qa-note' }, NOTE),
       h('nav', { class: 'qa-nav' },
         prev
@@ -217,8 +244,8 @@ function moveItem(text) {
   return h('li', null, h('span', { class: 'qa-move-n', 'aria-label': `順番${n}` }, String(n)), m[2]);
 }
 
-/** パターンの切り替え（タブ）と、選んだパターンの図・動き */
-function patternCard(it) {
+/** パターンの切り替え（タブ）と、選んだパターンの図・動き。tool は右上に置くボタン（左右の入れ替え） */
+function patternCard(it, tool, mirrored) {
   const key = `qaPattern:${it.id}`;
   const saved = Number(sessionGet(key));
   let current = Number.isInteger(saved) && saved >= 0 && saved < it.patterns.length ? saved : 0;
@@ -249,15 +276,20 @@ function patternCard(it) {
           h('ul', { class: 'qa-moves' }, (p.points || []).map(moveItem)))));
   }
   select(current);
-  return h('section', { class: 'card qa-patterns' },
+  return h('section', { class: ['card qa-patterns', mirrored && 'mirrored'] },
+    tool
+      ? h('div', { class: 'qa-ptools' },
+        mirrored ? h('span', { class: 'qa-mirror-note' }, '左右を反対にして表示しています（図と説明文）') : h('span'),
+        tool)
+      : null,
     h('div', { class: 'qa-ptabs', role: 'tablist', 'aria-label': 'パターン' }, tabs),
     panel);
 }
 
 /** 図と本文の並び：パターンの切り替え／図1枚（ハーフは左右、オールは上下）／手順ごとの図（上に並べる） */
-function detailBody(it, text) {
+function detailBody(it, text, tool = null, mirrored = false) {
   if (Array.isArray(it.patterns)) {
-    return h('div', { class: 'qa-detail has-diagram patterns' }, patternCard(it), text);
+    return h('div', { class: 'qa-detail has-diagram patterns' }, patternCard(it, tool, mirrored), text);
   }
   const diagrams = itemDiagrams(it);
   if (!diagrams.length) return h('div', { class: 'qa-detail' }, text);

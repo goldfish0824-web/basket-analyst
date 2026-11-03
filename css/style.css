@@ -1289,6 +1289,10 @@ table.zones th, table.zones td { padding: 6px 8px; font-size: 14px; }
 .qa-detail.has-diagram.patterns { grid-template-columns: 1fr; }
 .qa-detail.has-diagram.patterns .qa-text { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 16px; }
 .qa-patterns { padding: 12px; }
+.qa-ptools { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.qa-mirror.on { background: var(--warn); border-color: transparent; color: #1b1405; }
+.qa-mirror-note { font-size: 14px; font-weight: 800; color: var(--warn); }
+:root[data-theme="light"] .qa-mirror-note { color: #8a5a00; }
 .qa-ptabs { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; gap: 6px; margin-bottom: 12px; }
 .qa-ptab {
   display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px;

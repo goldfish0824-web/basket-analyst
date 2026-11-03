@@ -60,6 +60,7 @@ export const QA_MOVED = {
   'press-8sec': { to: 'press-turnovers' },
   'press-break-finish': { to: 'tr-advantage', pattern: 1 },
   'zone-boxone': { to: 'man-ace', pattern: 1 },
+  'zone-gap': { to: 'zone-23', pattern: 2 },
   'zone-oreb': { to: 'reb-our-oreb' },
   'man-deny': { to: 'man-pressure', pattern: 1 },
   'def-23-weak': { to: 'def-23-basic' },
@@ -126,6 +127,57 @@ export function countByCategory(items) {
   const counts = Object.fromEntries(QA_CATEGORIES.map((c) => [c.key, 0]));
   for (const it of items) if (counts[it.cat] != null) counts[it.cat] += 1;
   return counts;
+}
+
+/**
+ * 説明文の左右を入れ替える（「左」⇔「右」。「左右」はそのまま）。
+ * 「左手のドリブル」「右サイド」「（左）」などがそのまま入れ替わる。
+ */
+export function mirrorText(text) {
+  return String(text)
+    .replace(/左右/g, '\u0000')
+    .replace(/[左右]/g, (c) => (c === '左' ? '右' : '左'))
+    .replace(/\u0000/g, '左右');
+}
+
+/**
+ * 図の左右を入れ替える。ハーフコートは x を 15−x に、オールコート（左から右へ攻める）は
+ * 攻める向きから見た左右＝上下なので y を 15−y にする。元のデータは変えない。
+ */
+export function mirrorDiagram(d) {
+  const { w, h } = courtSize(d.court);
+  const r = (v) => Math.round(v * 1e6) / 1e6; // 15−15.6 のような計算の端数を消す
+  const flip = d.court === 'full' ? ([x, y]) => [x, r(h - y)] : ([x, y]) => [r(w - x), y];
+  const pt = (ref) => (Array.isArray(ref) ? flip(ref) : ref);
+  const out = {
+    ...d,
+    offense: (d.offense || []).map(([x, y, l]) => [...flip([x, y]), l]),
+    defense: (d.defense || []).map(([x, y, l]) => [...flip([x, y]), l]),
+    arrows: (d.arrows || []).map((a) => ({ ...a, from: pt(a.from), to: pt(a.to), ...(a.via != null ? { via: pt(a.via) } : {}) })),
+  };
+  if (d.areas) out.areas = d.areas.map((ar) => ({ ...ar, points: ar.points.map(flip) }));
+  if (d.labels) out.labels = d.labels.map((l) => ({ ...l, at: flip(l.at), text: mirrorText(l.text) }));
+  if (d.guides) out.guides = d.guides.map((g) => ({ ...g, from: pt(g.from), to: pt(g.to) }));
+  return out;
+}
+
+function mirrorUnit(u) {
+  const out = { ...u };
+  if (u.name != null) out.name = mirrorText(u.name);
+  if (u.points) out.points = u.points.map(mirrorText);
+  if (u.caption != null) out.caption = mirrorText(u.caption);
+  if (u.diagram) out.diagram = mirrorDiagram(u.diagram);
+  if (Array.isArray(u.steps)) out.steps = u.steps.map((st) => ({ ...st, caption: mirrorText(st.caption), diagram: mirrorDiagram(st.diagram) }));
+  return out;
+}
+
+/** 場面全体（説明文・パターン・図）の左右を入れ替えたもの。タイトルと ID はそのまま */
+export function mirrorItem(item) {
+  const out = mirrorUnit(item);
+  out.title = item.title;
+  out.situation = mirrorText(item.situation);
+  if (Array.isArray(item.patterns)) out.patterns = item.patterns.map(mirrorUnit);
+  return out;
 }
 
 /** 'o1' / 'x2' / [x, y] を座標にする。見つからなければ null */

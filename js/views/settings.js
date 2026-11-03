@@ -1,6 +1,7 @@
-// 設定：バックアップ、ホーム画面追加の案内、名簿テンプレート、守備隊形の選択肢、デモ試合
+// 設定：バックアップ、ホーム画面追加の案内、名簿テンプレート、守備隊形の選択肢、AI接続、デモ試合
 import { h, toast, confirmDialog, isStandalone } from '../ui.js';
 import { DEFAULT_DEFENSES } from '../model.js';
+import { insightEndpoint, testConnection, reasonText } from '../ai.js';
 import {
   installHint, exportAll, importBackup, createDemoGame, rosterEditor, lastBackupText,
 } from './shared.js';
@@ -42,6 +43,32 @@ export async function renderSettings(root, params, app) {
     });
   }
   drawDefenses();
+
+  // ---- AI接続 ----
+  const workerUrl = h('input', {
+    type: 'url', inputmode: 'url', value: app.settings.workerUrl || '', placeholder: 'https://（中継 Worker の URL）',
+    autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-label': 'Worker の URL',
+  });
+  const staffPass = h('input', {
+    type: 'password', value: app.settings.staffPass || '', placeholder: 'スタッフ用パスコード',
+    autocomplete: 'off', autocapitalize: 'off', 'aria-label': 'スタッフ用パスコード',
+  });
+  const aiStatus = h('p', { class: 'ai-conn-status', 'aria-live': 'polite' });
+  const readAi = () => {
+    const url = workerUrl.value.trim();
+    if (url && !insightEndpoint(url)) {
+      aiStatus.textContent = 'URL は https:// から始まる形で入力してください';
+      aiStatus.className = 'ai-conn-status error';
+      return null;
+    }
+    return { workerUrl: url, staffPass: staffPass.value };
+  };
+  const saveAi = async () => {
+    const v = readAi();
+    if (!v) return null;
+    await app.saveSettings({ ...app.settings, ...v });
+    return v;
+  };
 
   root.append(
     h('header', { class: 'page-head' },
@@ -112,6 +139,36 @@ export async function renderSettings(root, params, app) {
               if (await confirmDialog('守備隊形の選択肢を最初の状態に戻します。', { ok: '戻す' })) saveDefenses([...DEFAULT_DEFENSES]);
             },
           }, '初期値に戻す'))),
+      h('section', { class: 'card' },
+        h('h2', null, 'AI接続（AI特筆データ）'),
+        h('p', { class: 'field-note' }, 'クォーター終了画面の「AI特筆データ」で使います。未設定・通信できないときは、端末内の自動抽出（AIなし）で表示します。'),
+        h('div', { class: 'grid-2' },
+          h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Worker の URL'), workerUrl),
+          h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'スタッフ用パスコード'), staffPass)),
+        h('div', { class: 'row' },
+          h('button', {
+            class: 'btn primary', type: 'button',
+            onclick: async () => {
+              if (await saveAi()) {
+                aiStatus.textContent = '保存しました';
+                aiStatus.className = 'ai-conn-status';
+              }
+            },
+          }, '保存'),
+          h('button', {
+            class: 'btn', type: 'button',
+            onclick: async () => {
+              const v = await saveAi();
+              if (!v) return;
+              aiStatus.textContent = '接続を確かめています…';
+              aiStatus.className = 'ai-conn-status';
+              const r = await testConnection(v, { online: navigator.onLine !== false });
+              aiStatus.textContent = r.ok ? '接続できました' : `接続できません：${reasonText(r)}`;
+              aiStatus.className = `ai-conn-status ${r.ok ? 'ok' : 'error'}`;
+            },
+          }, '接続テスト')),
+        aiStatus,
+        h('p', { class: 'field-note' }, 'URL とパスコードはこの端末の中だけに保存します（バックアップのファイルにも入れません）。Worker の用意は worker/README.md を見てください。')),
       h('section', { class: 'card' },
         h('h2', null, 'デモ試合'),
         h('p', null, '架空の名前で約120件の記録が入った試合を作ります。集計・シュートチャートの確認に使えます。'),

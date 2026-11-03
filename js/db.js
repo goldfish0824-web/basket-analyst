@@ -139,6 +139,9 @@ export const DEFAULT_SETTINGS = {
   defenses: DEFAULT_DEFENSES,
   installHintDismissed: false,
   lastBackupAt: null,
+  // AI接続（端末の中だけに保存。バックアップのファイルには入れない）
+  workerUrl: '',
+  staffPass: '',
 };
 
 export async function getSettings() {

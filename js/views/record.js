@@ -29,6 +29,8 @@ export async function renderRecord(root, params, app) {
   let input = initialInput();
   let lastAddedId = null;
   let lastMessage = ''; // 直前に記録した内容（右側の案内欄に出す）
+  let lastSave = Promise.resolve();
+  const summaryHref = (q) => `#/game/${game.id}/quarter/${q}`;
 
   // ---- 保存 ----
   const saveError = (err) => {
@@ -51,7 +53,7 @@ export async function renderRecord(root, params, app) {
     });
     events.push(e);
     lastAddedId = e.id;
-    db.putEvent(e).catch(saveError);
+    lastSave = db.putEvent(e).catch(saveError);
     return e;
   }
 
@@ -264,9 +266,13 @@ export async function renderRecord(root, params, app) {
       return;
     }
     const idle = !input.sel && !input.loc && !input.action;
+    const last = events[events.length - 1];
+    const afterTimeout = idle && lastMessage && last && last.type === 'timeout';
     replace(context,
       idle && lastMessage ? h('p', { class: 'ctx-done big' }, lastMessage) : null,
-      h('p', { class: 'hint-text' }, hintFor(input)));
+      afterTimeout
+        ? h('a', { class: 'btn summary-link', href: summaryHref(last.quarter) }, `${quarterLabel(last.quarter)}のここまでのまとめ・AI特筆データ`)
+        : h('p', { class: 'hint-text' }, hintFor(input)));
   }
 
   // ---- プレーボタン ----
@@ -330,6 +336,7 @@ export async function renderRecord(root, params, app) {
       h('button', { class: 'btn primary huge', type: 'button', onclick: () => startQuarter(qs.next) }, `${quarterLabel(qs.next)} 開始`),
       isEndOfRegulation ? h('p', { class: 'muted' }, '延長がない場合は、ここで記録は終わりです。') : null,
       h('div', { class: 'row center' },
+        qs.phase === 'break' ? h('a', { class: 'btn', href: summaryHref(qs.quarter) }, `${quarterLabel(qs.quarter)}のまとめ・AI特筆データ`) : null,
         qs.phase === 'break' ? h('a', { class: 'btn', href: `#/game/${game.id}/summary` }, '集計を見る') : null,
         h('a', { class: 'btn', href: '#/' }, 'ホームへ'))));
   }
@@ -361,6 +368,9 @@ export async function renderRecord(root, params, app) {
     input = initialInput();
     addEvent({ type: 'q_end', team: null, quarter: qs.quarter });
     update();
+    // クォーター終了画面へ（保存が終わってから）
+    await lastSave;
+    app.go(summaryHref(qs.quarter));
   }
 
   function undo() {
@@ -438,9 +448,14 @@ export async function renderRecord(root, params, app) {
   }
 
   function openMenu() {
+    const qs = quarterState(events);
     const close = modal({
       title: `vs ${game.opponent || '相手'}`,
       body: h('div', { class: 'menu-list' },
+        qs.phase !== 'pre'
+          ? h('a', { class: 'btn', href: summaryHref(qs.quarter), onclick: () => close() },
+            `${quarterLabel(qs.quarter)}のまとめ・AI特筆データ${qs.phase === 'live' ? '（ここまで）' : ''}`)
+          : null,
         h('a', { class: 'btn', href: `#/game/${game.id}/summary`, onclick: () => close() }, '集計を見る'),
         h('a', { class: 'btn', href: `#/game/${game.id}/edit`, onclick: () => close() }, '試合設定を編集（名簿・相手の背番号）'),
         h('a', { class: 'btn', href: '#/', onclick: () => close() }, 'ホームへ戻る')),

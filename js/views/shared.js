@@ -34,8 +34,8 @@ export function lastBackupText(ms) {
 /** 端末内の全データ（試合・記録・設定）を JSON で書き出す */
 export async function exportAll(app) {
   const [games, events] = await Promise.all([db.listGames(), db.listAllEvents()]);
-  // 端末ごとの表示状態は書き出さない
-  const { lastBackupAt, installHintDismissed, ...settingsToSave } = app.settings;
+  // 端末ごとの状態と、AI接続の URL・パスコードは書き出さない
+  const { lastBackupAt, installHintDismissed, workerUrl, staffPass, ...settingsToSave } = app.settings;
   const data = buildBackup({ games, events, settings: settingsToSave });
   const ok = await saveJsonFile(data, backupFileName(games));
   if (ok) {

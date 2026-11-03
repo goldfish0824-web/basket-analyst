@@ -8,6 +8,7 @@ import { renderSummary } from './views/summary.js';
 import { renderSettings } from './views/settings.js';
 import { renderQuarter } from './views/quarter.js';
 import { renderReview } from './views/review.js';
+import { renderQaList, renderQaDetail } from './views/qa.js';
 
 const root = document.getElementById('app');
 
@@ -31,6 +32,7 @@ function parse(hash) {
   if (parts.length === 0) return { view: 'home' };
   if (parts[0] === 'new') return { view: 'setup', gameId: null };
   if (parts[0] === 'settings') return { view: 'settings' };
+  if (parts[0] === 'qa') return parts[1] ? { view: 'qaDetail', id: parts[1] } : { view: 'qa' };
   if (parts[0] === 'game' && parts[1]) {
     const sub = parts[2] || 'record';
     if (sub === 'record') return { view: 'record', gameId: parts[1] };
@@ -50,6 +52,8 @@ const VIEWS = {
   settings: renderSettings,
   quarter: renderQuarter,
   review: renderReview,
+  qa: renderQaList,
+  qaDetail: renderQaDetail,
 };
 
 async function route() {

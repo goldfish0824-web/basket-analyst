@@ -1,6 +1,6 @@
 {
-  "name": "バスケ・アナリスト",
-  "short_name": "アナリスト",
+  "name": "BasketBall Analyst",
+  "short_name": "BB Analyst",
   "description": "女子バスケットボール部のアナリスト用。試合中の記録とシュートチャート。",
   "lang": "ja",
   "start_url": "./",

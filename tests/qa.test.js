@@ -37,7 +37,7 @@ test('フロントコートのセット：2点用と3点用が2つずつ、手�
   assert.equal(sets.filter((i) => i.title.startsWith('【3点】')).length, 2);
   for (const it of sets) {
     assert.ok(it.steps.length >= 2, it.id);
-    assert.ok(it.title.includes('残り10秒'), it.id);
+    assert.ok(it.title.includes('試合終盤'), it.id);
     for (const st of it.steps) assert.ok(st.caption && st.diagram, it.id);
   }
 });
@@ -113,3 +113,12 @@ test('検索：キーワード（すべて含む）・カテゴリ・お気に�
   assert.equal(searchQa(QA_ITEMS).length, 55);
   assert.ok(searchQa(QA_ITEMS, { query: 'スタッガード' }).some((i) => i.id === 'set-3-stagger'));
 });
+
+test('セット①（ピック＆ロール）は右手のドリブルで中央へ（左ウイングから右へ）', () => {
+  const it = QA_ITEMS.find((i) => i.id === 'set-2-pnr');
+  const drive = it.steps[1].diagram.arrows.find((a) => a.kind === 'dribble');
+  const start = it.steps[1].diagram.offense.find((p) => p[2] === '1');
+  assert.ok(drive.to[0] > start[0], 'ドリブルが左から右（中央）へ向かっていない');
+  assert.ok(it.points.some((p) => p.includes('右手のドリブル')));
+});
+

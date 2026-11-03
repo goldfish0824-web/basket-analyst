@@ -140,9 +140,20 @@ function isPlayerRef(ref) {
 export function renderDiagram(d, { thumb = false, caption = '' } = {}) {
   const { w, h: hgt } = courtSize(d.court);
   const id = `dg${++uid}`;
+  // コートの外（スローインする選手など）にいる選手とボールが切れないよう、枠を広げる
+  let minX = -M;
+  let minY = -M;
+  let maxX = w + M;
+  let maxY = hgt + M;
+  for (const [x, y] of [...(d.offense || []), ...(d.defense || [])]) {
+    minX = Math.min(minX, x - 0.8);
+    maxX = Math.max(maxX, x + 1.0);
+    minY = Math.min(minY, y - 1.0);
+    maxY = Math.max(maxY, y + 1.0);
+  }
   const svg = s('svg', {
     class: ['diagram', d.court === 'full' ? 'full' : 'half', thumb ? 'thumb' : ''].filter(Boolean).join(' '),
-    viewBox: `${-M} ${-M} ${w + 2 * M} ${hgt + 2 * M}`,
+    viewBox: `${minX} ${minY} ${maxX - minX} ${maxY - minY}`,
     role: 'img',
     'aria-label': caption || '図',
   });

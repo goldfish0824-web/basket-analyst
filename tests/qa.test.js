@@ -2,13 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   QA_ITEMS, QA_CATEGORIES, searchQa, normalizeText, countByCategory, validateDiagram, resolvePoint, legendKinds, courtSize,
-  CATEGORY_LABEL,
+  CATEGORY_LABEL, itemDiagrams,
 } from '../js/qa.js';
 
-test('場面は50件、ID は重複なし、カテゴリは決まったもの', () => {
-  assert.equal(QA_ITEMS.length, 50);
+test('場面は55件、ID は重複なし、カテゴリは決まったもの', () => {
+  assert.equal(QA_ITEMS.length, 55);
   const ids = new Set(QA_ITEMS.map((i) => i.id));
-  assert.equal(ids.size, 50);
+  assert.equal(ids.size, 55);
   const cats = new Set(QA_CATEGORIES.map((c) => c.key));
   for (const it of QA_ITEMS) {
     assert.ok(cats.has(it.cat), `${it.id} のカテゴリ ${it.cat}`);
@@ -22,11 +22,29 @@ test('場面は50件、ID は重複なし、カテゴリは決まったもの', 
 test('利用者の例の2つの場面が入っている', () => {
   assert.ok(QA_ITEMS.some((i) => i.title.includes('2-2-1オールコートゾーン')));
   assert.ok(QA_ITEMS.some((i) => i.title.includes('プレッシャーがきつく') && i.title.includes('パス')));
+  assert.ok(QA_ITEMS.some((i) => i.title.includes('1-2-2オールコートプレス')));
+});
+
+test('ハーフコートのゾーン（2-3・3-2・1-3-1）は対処の例が7つ以上', () => {
+  for (const id of ['zone-23', 'zone-32', 'zone-131']) {
+    assert.ok(QA_ITEMS.find((i) => i.id === id).points.length >= 7, id);
+  }
+});
+
+test('フロントコートのセット：2点用と3点用が2つずつ、手順ごとの図つき', () => {
+  const sets = QA_ITEMS.filter((i) => i.cat === 'sets');
+  assert.equal(sets.filter((i) => i.title.startsWith('【2点】')).length, 2);
+  assert.equal(sets.filter((i) => i.title.startsWith('【3点】')).length, 2);
+  for (const it of sets) {
+    assert.ok(it.steps.length >= 2, it.id);
+    assert.ok(it.title.includes('残り10秒'), it.id);
+    for (const st of it.steps) assert.ok(st.caption && st.diagram, it.id);
+  }
 });
 
 test('文言：「TO」と略さない、「〜すべき」と書かない', () => {
   for (const it of QA_ITEMS) {
-    const texts = [it.title, it.situation, ...it.points, ...(it.watch || []), it.caption || ''];
+    const texts = [it.title, it.situation, ...it.points, ...(it.watch || []), ...itemDiagrams(it).map((d) => d.caption)];
     for (const t of texts) {
       assert.ok(!/TO/.test(t), `${it.id}: ${t}`);
       assert.ok(!/すべき/.test(t), `${it.id}: ${t}`);
@@ -37,12 +55,15 @@ test('文言：「TO」と略さない、「〜すべき」と書かない', () 
 test('図のデータに問題がない（座標・参照・矢印の種類）', () => {
   let withDiagram = 0;
   for (const it of QA_ITEMS) {
-    if (!it.diagram) continue;
+    const list = itemDiagrams(it);
+    if (!list.length) continue;
     withDiagram += 1;
-    assert.deepEqual(validateDiagram(it.diagram), [], it.id);
-    assert.ok(it.caption, `${it.id} に図の説明がない`);
+    for (const d of list) {
+      assert.deepEqual(validateDiagram(d.diagram), [], it.id);
+      assert.ok(d.caption, `${it.id} に図の説明がない`);
+    }
   }
-  assert.ok(withDiagram >= 25, `図は ${withDiagram} 件`);
+  assert.ok(withDiagram >= 30, `図のある場面は ${withDiagram} 件`);
 });
 
 test('図の検査は間違いを見つける', () => {
@@ -89,5 +110,6 @@ test('検索：キーワード（すべて含む）・カテゴリ・お気に�
   assert.equal(searchQa(QA_ITEMS, { category: 'rebound' }).length, countByCategory(QA_ITEMS).rebound);
   assert.deepEqual(searchQa(QA_ITEMS, { category: 'fav', favorites: ['man-pnr', 'zone-23'] }).map((i) => i.id), ['zone-23', 'man-pnr']);
   assert.equal(searchQa(QA_ITEMS, { query: 'そんなことばはない' }).length, 0);
-  assert.equal(searchQa(QA_ITEMS).length, 50);
+  assert.equal(searchQa(QA_ITEMS).length, 55);
+  assert.ok(searchQa(QA_ITEMS, { query: 'スタッガード' }).some((i) => i.id === 'set-3-stagger'));
 });

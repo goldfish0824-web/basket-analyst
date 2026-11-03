@@ -26,8 +26,17 @@ export function normalizeText(text) {
     .trim();
 }
 
+/** その場面の図の一覧（1枚の図、または手順ごとの図） */
+export function itemDiagrams(item) {
+  if (Array.isArray(item.steps)) return item.steps.map((st) => ({ caption: st.caption, diagram: st.diagram }));
+  return item.diagram ? [{ caption: item.caption || '', diagram: item.diagram }] : [];
+}
+
 function haystack(item) {
-  return normalizeText([item.title, item.situation, ...(item.points || []), ...(item.watch || []), item.caption || '', CATEGORY_LABEL[item.cat] || ''].join(' '));
+  return normalizeText([
+    item.title, item.situation, ...(item.points || []), ...(item.watch || []), CATEGORY_LABEL[item.cat] || '',
+    ...itemDiagrams(item).map((d) => d.caption),
+  ].join(' '));
 }
 
 /**

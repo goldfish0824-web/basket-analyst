@@ -1280,6 +1280,10 @@ table.zones th, table.zones td { padding: 6px 8px; font-size: 14px; }
 .qa-detail.has-diagram.half { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .qa-detail.has-diagram.full { grid-template-columns: 1fr; }
 .qa-detail.has-diagram.full .qa-text { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 16px; }
+.qa-detail.has-diagram.steps { grid-template-columns: 1fr; }
+.qa-detail.has-diagram.steps .qa-text { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 16px; }
+.qa-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 12px; }
+.qa-step .diagram { max-height: 62vh; }
 .qa-detail .card { margin-bottom: 16px; }
 .qa-diagram { padding: 12px; position: sticky; top: 84px; }
 .qa-detail.full .qa-diagram { position: static; }
@@ -1364,6 +1368,6 @@ table.zones th, table.zones td { padding: 6px 8px; font-size: 14px; }
 }
 @media (max-width: 760px) {
   .qa-grid { grid-template-columns: 1fr; }
-  .qa-detail.has-diagram.half, .qa-detail.has-diagram.full .qa-text { grid-template-columns: 1fr; }
+  .qa-detail.has-diagram.half, .qa-detail.has-diagram.full .qa-text, .qa-detail.has-diagram.steps .qa-text, .qa-steps { grid-template-columns: 1fr; }
   .qa-diagram { position: static; }
 }

@@ -1,7 +1,9 @@
-// AI特筆データの問い合わせ（Cloudflare Worker の POST /basket/insight へ）。
-// 10秒で応答がない・通信できない・未設定のときは呼び出し側が端末内の順位付けに切り替える。
+// AI特筆データと「対処の例」の問い合わせ（Cloudflare Worker の POST /basket/insight へ。kind で分ける）。
+// 特筆データは10秒で応答がない・通信できない・未設定のときに、呼び出し側が端末内の順位付けに切り替える。
 
 export const AI_TIMEOUT_MS = 10000;
+// 対処の例は文章が長いので、待つ時間を長めにする（Worker 側は AI への問い合わせを18秒で打ち切る）
+export const ADVICE_TIMEOUT_MS = 20000;
 export const INSIGHT_PATH = '/basket/insight';
 
 export const REASON_TEXT = {
@@ -37,10 +39,10 @@ export function isConfigured(settings) {
 }
 
 /**
- * 問い合わせる。戻り値は { ok: true, data } か { ok: false, reason, status? }。
+ * Worker に問い合わせる。戻り値は { ok: true, data } か { ok: false, reason, status? }。
  * opts = { timeoutMs, fetchImpl, online }
  */
-export async function requestInsights(settings, payload, opts = {}) {
+export async function postToWorker(settings, payload, opts = {}) {
   const { timeoutMs = AI_TIMEOUT_MS, fetchImpl = globalThis.fetch, online = true } = opts;
   if (!isConfigured(settings)) return { ok: false, reason: 'not_configured' };
   const url = insightEndpoint(settings.workerUrl);
@@ -72,6 +74,16 @@ export async function requestInsights(settings, payload, opts = {}) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** AI特筆データ（10秒で諦める） */
+export function requestInsights(settings, payload, opts = {}) {
+  return postToWorker(settings, payload, { timeoutMs: AI_TIMEOUT_MS, ...opts });
+}
+
+/** 対処の例（20秒で諦める） */
+export function requestAdvice(settings, payload, opts = {}) {
+  return postToWorker(settings, payload, { timeoutMs: ADVICE_TIMEOUT_MS, ...opts });
 }
 
 /** 接続テスト：候補0件で送る（Worker は AI を呼ばずに空の結果を返す） */

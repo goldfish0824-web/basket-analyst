@@ -63,6 +63,7 @@ export function parseBackup(text) {
     games.push({
       checklist: [],
       insights: [],
+      advice: [],
       videos: [],
       oppNumbers: [],
       roster: [],

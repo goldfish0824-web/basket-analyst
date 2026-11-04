@@ -68,8 +68,8 @@ export function accountCard(app) {
     // 最初の管理者
     const sName = input({ type: 'text', placeholder: '例：山田', 'aria-label': '表示名', maxlength: '30' });
     const sId = input({ type: 'text', placeholder: '例：yamada', 'aria-label': '管理者の ID' });
-    const sPw = input({ type: 'password', placeholder: '8字以上', 'aria-label': '管理者のパスワード' });
-    const sPw2 = input({ type: 'password', placeholder: 'もう一度', 'aria-label': '管理者のパスワード（確認）' });
+    const sPw = input({ type: 'password', autocomplete: 'new-password', placeholder: '8字以上', 'aria-label': '管理者のパスワード' });
+    const sPw2 = input({ type: 'password', autocomplete: 'new-password', placeholder: 'もう一度', 'aria-label': '管理者のパスワード（確認）' });
     const sPass = input({ type: 'password', value: app.settings.staffPass || '', placeholder: 'Worker の STAFF_PASS', 'aria-label': 'スタッフ用パスコード（最初の管理者）' });
     const sStatus = h('p', { class: 'ai-conn-status', 'aria-live': 'polite' });
     const setupBtn = h('button', { class: 'btn primary', type: 'button' }, '管理者を作ってログイン');
@@ -86,7 +86,10 @@ export function accountCard(app) {
       const r = await setupAdmin(app, { loginId: sId.value.trim(), displayName: sName.value.trim(), password: sPw.value, setupPass: sPass.value });
       setupBtn.disabled = false;
       if (!r.ok) {
-        sStatus.textContent = `作れません：${errorText(r)}`;
+        // 最初の管理者で「認証できない」のは、スタッフ用パスコードが Worker の STAFF_PASS と違うとき
+        sStatus.textContent = r.reason === 'unauthorized'
+          ? '作れません：スタッフ用パスコードが違います。Cloudflare の Worker に登録したシークレット STAFF_PASS と同じもの（大文字・小文字も同じ）を入れてください'
+          : `作れません：${errorText(r)}`;
         sStatus.className = 'ai-conn-status error';
         return;
       }

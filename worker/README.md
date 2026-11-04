@@ -2,8 +2,9 @@
 
 アプリの「AI特筆データ」は、この Worker を通して Claude に問い合わせます。APIキーとシステムプロンプトは Worker の中にだけ置き、iPad には置きません。
 
-- `insight.js`：ハンドラー関数 `handleInsight(request, env)`（外部ライブラリなし）
-- `index.js`：単独の Worker として動かすときの入口
+- `insight.js`：ハンドラー関数 `handleInsight(request, env)`（外部ライブラリなし）。AI特筆データと「対処の例」の両方を受ける
+- `dashboard.js`：**Cloudflare の画面で作った Worker にまるごと貼る1ファイル版**（`insight.js` と入口を1つにしたもの。`node worker/make-dashboard.mjs` で作る）
+- `index.js`：単独の Worker として動かすときの入口（wrangler 用）
 - `wrangler.example.toml`：単独で動かすときの設定例
 
 **デプロイは利用者が行います。** URL・APIキー・パスコードの実値はリポジトリに書かないでください。
@@ -29,9 +30,20 @@ APIキーのページ（https://platform.claude.com/settings/keys ）で「Creat
 - 表示されたキー（`sk-ant-api…`）をコピーし、すぐ次の「2. シークレットと変数」で `ANTHROPIC_API_KEY` に入れる。メモ帳・アプリ・GitHub・チャットなど、ほかの場所には保存しない
 - 漏れたかもしれないときは、同じページでキーを「Disable」（無効化。あとで戻せる）か「Delete」（削除。戻せない）にして、新しいキーを作る
 
-## 1. 既存の中継 Worker に追加する
+## 1. Worker にコードを入れる
 
-### ダッシュボードで編集している場合
+### このアプリ専用の Worker を Cloudflare の画面で作る（おすすめ）
+
+ほかのアプリが使っている Worker に手を入れないので、貼り間違えてもほかのアプリは止まりません。
+
+1. Cloudflare ダッシュボード → Workers & Pages →「Create application」→「Start with Hello World!」
+2. 名前（例：`basket-insight`）を入れて「Deploy」
+3.「Edit code」→ `worker.js` の中身をすべて消し、[`dashboard.js`](dashboard.js) の中身を**まるごと**貼って「Deploy」
+4. 次の「2. シークレットと変数」を登録する。Worker の URL は `https://<Worker名>.<アカウント名>.workers.dev`
+
+**アプリの更新で Worker のコードが変わったとき**は、手順3（`dashboard.js` をまるごと貼り直して「Deploy」）だけをやり直します。シークレットと変数はそのまま残ります。
+
+### 既存の中継 Worker に追加する（ダッシュボードで編集している場合）
 
 1. Cloudflare ダッシュボード → Workers & Pages → 既存の中継 Worker →「コードを編集」
 2. `insight.js` の中身をすべてコピーし、既存のコードの**いちばん上**に貼り付ける（`export` が付いたままで動きます）
@@ -76,8 +88,10 @@ APIキーのページ（https://platform.claude.com/settings/keys ）で「Creat
 | `ANTHROPIC_API_KEY` | シークレット（必須） | Claude の APIキー。既存の中継で同じ名前を使っていればそのまま使える |
 | `MODEL` | 変数（任意） | 既定 `claude-haiku-5-5`（速さ優先）。品質を上げたいときは `claude-sonnet-5-5` |
 | `ALLOWED_ORIGINS` | 変数（任意） | 呼び出しを許可するサイト。既定 `https://goldfish0824-web.github.io`。カンマ区切りで複数可 |
-| `MAX_TOKENS` | 変数（任意） | 既定 `1000` |
+| `MAX_TOKENS` | 変数（任意） | AI特筆データの上限。既定 `1000` |
 | `EFFORT` | 変数（任意） | 既定 `low` |
+| `ADVICE_MODEL` | 変数（任意） | 「対処の例」だけ別のモデルにするとき（例：`claude-sonnet-5-5`）。未設定なら `MODEL` と同じ |
+| `ADVICE_MAX_TOKENS` | 変数（任意） | 「対処の例」の上限。既定 `2000` |
 
 ダッシュボードでは Worker の「設定 → 変数とシークレット」で追加します。wrangler の場合は次のとおり（値は聞かれたときに入力）。
 
@@ -130,7 +144,19 @@ curl -s -X POST "https://<Worker名>.<アカウント名>.workers.dev/basket/ins
 | APIキーの有効期限が切れていないか | 新しいキーを作って入れ直す |
 | `MODEL` を変えた場合、正しいモデル名か | 空に戻す（既定の `claude-haiku-5-5` になる） |
 
-Worker のコード（`insight.js`）が更新されたとき（AI への指示文を変えたときなど）は、「1. 既存の中継 Worker に追加する」の手順でもう一度貼り直してデプロイします。シークレットと変数はそのまま残ります。
+Worker のコードが更新されたとき（AI への指示文を変えたとき、新しい機能を足したときなど）は、「1. Worker にコードを入れる」の手順でもう一度貼り直してデプロイします（専用の Worker なら `dashboard.js` をまるごと）。シークレットと変数はそのまま残ります。
+
+「対処の例を聞く」で「AIの中継でエラーが起きました（400）」と出るときは、Worker のコードが古いままです。`dashboard.js` を貼り直してください。
+
+## 対処の例（AIに聞く）
+
+クォーター終了画面の「対処の例を聞く」と質問の欄から、同じ `POST /basket/insight` に `kind: "advice"` で問い合わせます。
+
+- 送るもの：その特筆データの1行と数字（候補）、または入力した質問（200字まで）、点数、直近の守備隊形、場面別Q&A の一覧（id と題名）。選手の名前は送らない
+- AI への指示：決めるのはコーチ。「〜すべき」とは書かず、選ぶための「対処の例」を2〜3個。ルールは FIBA。「TO」と略さない
+- 返す形：`{"options":[{"label":"…","detail":"…"}],"related":["press-221"]}`。例は最大3つ、`related` は送った一覧にある id だけ最大2つ
+- 特筆データも質問もなければ 400。AI の出力を読めない・断った・AI 側のエラーは 502
+- アプリは20秒で応答がなければ諦める。Worker も AI への問い合わせを18秒で打ち切る
 
 ## 仕様（SPEC 5-6）
 
@@ -150,4 +176,4 @@ Worker のコード（`insight.js`）が更新されたとき（AI への指示�
 | `claude-haiku-5-5`（既定） | 入力 $0.10・出力 $0.50（プロンプトが10万トークン以下のとき） | 約0.1円 | 2円未満 |
 | `claude-sonnet-5-5`（`MODEL` で変更） | 入力 $2・出力 $10 | 約2〜3円 | 数十円 |
 
-1回の問い合わせは入力2,000〜3,000トークン、出力は最大1,000トークン（`MAX_TOKENS`）です。円は1ドル150円で計算しています。`claude-sonnet-5-5` は文章の質が上がるかわりに応答が遅く、アプリは10秒で待つのをやめるため「AIなし」になる回数が増えることがあります（2026年10月時点の公開価格。最新は https://platform.claude.com/docs/en/about-claude/pricing で確認）。
+AI特筆データの1回の問い合わせは入力2,000〜3,000トークン、出力は最大1,000トークン（`MAX_TOKENS`）です。「対処の例」は場面別Q&A の題名も送るので入力3,000〜4,000トークン・出力は最大2,000トークンで、`claude-haiku-5-5` なら1回0.2円ほどです。円は1ドル150円で計算しています。`claude-sonnet-5-5` は文章の質が上がるかわりに応答が遅く、アプリは10秒で待つのをやめるため「AIなし」になる回数が増えることがあります（2026年10月時点の公開価格。最新は https://platform.claude.com/docs/en/about-claude/pricing で確認）。

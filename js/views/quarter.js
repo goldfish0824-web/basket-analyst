@@ -7,8 +7,14 @@ import { scoreOf, scoreByQuarter, teamFouls } from '../stats.js';
 import {
   buildCandidates, buildPayload, acceptAiResponse, pickLocal, localLine, evidenceText, CATEGORY_LABEL,
 } from '../insights.js';
-import { requestInsights, reasonText, isConfigured } from '../ai.js';
+import { requestInsights, requestAdvice, reasonText, isConfigured } from '../ai.js';
+import { buildAdvicePayload, acceptAdvice, relatedQaFor, mergeRelated, MAX_QUESTION } from '../advice.js';
+import { QA_ITEMS } from '../qa.js';
 import { insightRecordView, insightMetaText } from './insight-view.js';
+
+const QA_LIST = QA_ITEMS.map((it) => ({ id: it.id, title: it.title }));
+const QA_IDS = QA_LIST.map((x) => x.id);
+const QA_TITLE = Object.fromEntries(QA_LIST.map((x) => [x.id, x.title]));
 
 export async function renderQuarter(root, params, app) {
   const game = await db.getGame(params.gameId);
@@ -88,7 +94,7 @@ export async function renderQuarter(root, params, app) {
         : h('p', { class: 'muted' }, '特筆する候補がありません（条件を満たす数字がまだありません）。'));
       return;
     }
-    replace(resultEl, insightRecordView(record, names));
+    replace(resultEl, insightRecordView(record, names, { onAsk: (it) => ask({ item: it }) }));
   }
 
   function drawHistory() {
@@ -102,6 +108,113 @@ export async function renderQuarter(root, params, app) {
       list.map((r) => h('div', { class: 'history-item' },
         h('p', { class: 'insight-meta' }, insightMetaText(r), r.source === 'ai' ? ' AI' : '（自動抽出・AIなし）'),
         h('ul', null, r.items.map((it) => h('li', null, it.line)))))));
+  }
+
+  // ---- 対処の例（AIに聞く） ----
+  const adviceStatus = h('p', { class: 'ai-status', 'aria-live': 'polite' });
+  const adviceList = h('div', { class: 'advice-list' });
+  const questionInput = h('input', {
+    type: 'text', class: 'advice-input', maxlength: String(MAX_QUESTION), enterkeyhint: 'send',
+    placeholder: '例：相手#4のゴール下のシュートを減らすには？', 'aria-label': 'AIに聞きたいこと',
+  });
+  const askBtn = h('button', { class: 'btn primary advice-send', type: 'submit' }, icon('sparkle'), 'AIに聞く');
+  const askForm = h('form', {
+    class: 'advice-form',
+    onsubmit: (ev) => {
+      ev.preventDefault();
+      const text = questionInput.value.trim();
+      if (!text) {
+        questionInput.focus();
+        return;
+      }
+      ask({ question: text });
+    },
+  }, questionInput, askBtn);
+  const adviceCard = h('section', { class: 'card q-advice' },
+    h('div', { class: 'card-head' }, h('h2', null, '対処の例（AIに聞く）')),
+    h('p', { class: 'advice-note' }, 'AIが出す「対処の例」です。決めるのはコーチです。特筆データの各行の「対処の例を聞く」か、下の欄から聞けます。'),
+    askForm,
+    adviceStatus,
+    adviceList);
+
+  function adviceForQuarter() {
+    return (game.advice || []).filter((r) => r.quarter === q).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  function adviceView(r) {
+    return h('div', { class: 'advice-record' },
+      h('p', { class: 'advice-q' },
+        h('span', { class: ['advice-tag', r.insightLine ? 'insight' : 'question'] }, r.insightLine ? '特筆データ' : '質問'),
+        r.insightLine || r.question),
+      r.insightLine && r.question ? h('p', { class: 'advice-q2' }, r.question) : null,
+      h('p', { class: 'insight-meta' }, insightMetaText(r), r.source === 'ai' ? h('span', { class: 'src ai' }, 'AIの対処の例') : null),
+      r.options.length
+        ? h('ol', { class: 'advice-options' }, r.options.map((o) => h('li', null,
+          h('p', { class: 'advice-label' }, o.label),
+          h('p', { class: 'advice-detail' }, o.detail))))
+        : h('p', { class: 'advice-none' }, r.note ? `AIに聞けませんでした（${r.note}）。` : 'AIから対処の例が返ってきませんでした。'),
+      r.related.length
+        ? h('div', { class: 'advice-related' },
+          h('span', { class: 'advice-related-h' }, '関連する場面別Q&A'),
+          r.related.filter((id) => QA_TITLE[id]).map((id) => h('a', { class: 'btn advice-qa', href: `#/qa/${id}` }, icon('book'), QA_TITLE[id])))
+        : null);
+  }
+
+  function drawAdvice() {
+    const list = adviceForQuarter();
+    if (!list.length) {
+      replace(adviceList);
+      return;
+    }
+    const [latest, ...older] = list;
+    replace(adviceList,
+      adviceView(latest),
+      older.length
+        ? h('details', { class: 'advice-older' },
+          h('summary', null, `この${inProgress ? '時点' : 'クォーター'}の前に聞いたこと（${older.length}件）`),
+          older.map(adviceView))
+        : null);
+  }
+
+  let asking = false;
+  async function ask({ item = null, question = '' }) {
+    if (asking) return;
+    asking = true;
+    askBtn.disabled = true;
+    adviceCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const configured = isConfigured(app.settings);
+    adviceStatus.textContent = configured ? 'AIに問い合わせ中…（最大20秒）' : '';
+    const local = item ? relatedQaFor(item.candidate) : [];
+    let options = [];
+    let aiRelated = [];
+    let note = '';
+    const payload = buildAdvicePayload({ events, quarter: q, inProgress, item, question, qa: QA_LIST });
+    const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+    const r = await requestAdvice(app.settings, payload, { online });
+    if (r.ok) {
+      ({ options, related: aiRelated } = acceptAdvice(r.data, QA_IDS));
+      if (!options.length) note = 'AIの応答に使える対処の例がありません';
+    } else {
+      note = r.reason === 'timeout' ? '20秒で応答がありません' : reasonText(r);
+    }
+    const record = {
+      id: uuid(), quarter: q, inProgress, createdAt: Date.now(),
+      source: options.length ? 'ai' : 'none', note,
+      insightLine: item ? item.line : '', candidateId: item ? item.candidateId : null,
+      question: payload.question, options, related: mergeRelated(aiRelated, local, QA_IDS),
+    };
+    game.advice = [...(game.advice || []), record];
+    try {
+      await db.putGame(game);
+    } catch (err) {
+      console.error(err);
+      toast('結果を保存できませんでした', { kind: 'error' });
+    }
+    if (question && options.length) questionInput.value = '';
+    adviceStatus.textContent = '';
+    askBtn.disabled = false;
+    asking = false;
+    drawAdvice();
   }
 
   async function run() {
@@ -144,6 +257,7 @@ export async function renderQuarter(root, params, app) {
   if (latest) runBtn.querySelector('.ai-run-label').textContent = 'もう一度（AI特筆データ）';
   drawResult(latest);
   drawHistory();
+  drawAdvice();
 
   const candidateList = h('details', { class: 'cand-list' },
     h('summary', null, `候補 ${candidates.length}件（端末で計算した数字。AIはこの中から選びます）`),
@@ -160,12 +274,14 @@ export async function renderQuarter(root, params, app) {
       h('div', { class: 'head-actions' }, h('a', { class: 'btn', href: `#/game/${game.id}/summary` }, icon('chart'), '集計'))),
     h('div', { class: 'page wide quarter-page' },
       scoreCard,
-      h('section', { class: 'card q-ai' },
-        h('div', { class: 'card-head' }, h('h2', null, 'AI特筆データ'), runBtn),
-        statusEl,
-        resultEl,
-        historyEl,
-        candidateList,
-        h('p', { class: 'field-note' }, '数字はすべて端末で計算しています。AIには背番号と数字だけを送り、選手の名前は送りません。'))),
+      h('div', { class: 'q-col' },
+        h('section', { class: 'card q-ai' },
+          h('div', { class: 'card-head' }, h('h2', null, 'AI特筆データ'), runBtn),
+          statusEl,
+          resultEl,
+          historyEl,
+          candidateList,
+          h('p', { class: 'field-note' }, '数字はすべて端末で計算しています。AIには背番号と数字だけを送り、選手の名前は送りません。')),
+        adviceCard)),
   );
 }

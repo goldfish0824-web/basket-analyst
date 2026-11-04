@@ -1070,6 +1070,35 @@ table.zones th, table.zones td { padding: 6px 8px; font-size: 14px; }
 .history-item { border-top: 1px solid var(--line); padding: 8px 0; }
 .history-item ul { margin: 0; padding-left: 1.2em; }
 .cand-list { margin-top: 10px; border-top: 1px solid var(--line); }
+/* 対処の例（AIに聞く） */
+.q-col { display: grid; gap: 16px; min-width: 0; }
+.insight-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.insight-ask { min-height: var(--tap); font-size: 15px; }
+.q-advice { scroll-margin-top: 84px; }
+.q-advice .card-head { margin-bottom: 4px; }
+.advice-note { margin: 0 0 10px; color: var(--ink-2); font-size: 14px; }
+.advice-form { display: flex; gap: 8px; }
+.advice-input { flex: 1; min-width: 0; min-height: var(--tap); font-size: 16px; }
+.advice-send { flex: 0 0 auto; }
+.advice-list { display: grid; gap: 12px; }
+.advice-record { border-top: 1px solid var(--line); padding-top: 10px; }
+.advice-q { margin: 0; font-size: 18px; font-weight: 800; line-height: 1.45; }
+.advice-q2 { margin: 4px 0 0; font-weight: 700; color: var(--ink-2); }
+.advice-tag { display: inline-block; margin-right: 8px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; vertical-align: 2px; border: 1px solid var(--line-2); color: var(--ink-2); }
+.advice-tag.insight { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.advice-options { margin: 8px 0 0; padding: 0; list-style: none; counter-reset: adv; display: grid; gap: 8px; }
+.advice-options li { counter-increment: adv; position: relative; padding: 10px 12px 10px 56px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.advice-options li::before {
+  content: '例' counter(adv); position: absolute; left: 10px; top: 10px; min-width: 28px; height: 24px; padding: 0 4px; border-radius: 6px;
+  display: grid; place-items: center; font-size: 12px; font-weight: 800; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.advice-label { margin: 0; font-size: 17px; font-weight: 800; }
+.advice-detail { margin: 4px 0 0; font-size: 15px; line-height: 1.6; color: var(--ink-2); }
+.advice-none { margin: 8px 0 0; color: var(--ink-2); }
+.advice-related { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.advice-related-h { font-size: 13px; font-weight: 800; color: var(--ink-2); }
+.advice-qa { font-size: 14px; max-width: 100%; }
+.advice-older summary { min-height: var(--tap); display: flex; align-items: center; cursor: pointer; font-weight: 800; color: var(--ink-2); }
 .cand-list ol { margin: 0; padding-left: 1.6em; display: grid; gap: 8px; }
 .cand-line { display: block; font-weight: 700; }
 .cand-meta { display: block; font-size: 12px; color: var(--muted); }

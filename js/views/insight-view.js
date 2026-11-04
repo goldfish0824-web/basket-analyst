@@ -16,19 +16,23 @@ export function insightMeta(record) {
     record.source === 'local' && record.note ? h('span', { class: 'muted' }, `理由：${record.note}`) : null);
 }
 
-/** 行（大きな文字）と、その下の根拠の数字 */
-export function insightLines(record, names) {
+/** 行（大きな文字）と、その下の根拠の数字。onAsk があれば各行に「対処の例を聞く」 */
+export function insightLines(record, names, onAsk = null) {
   return h('ol', { class: 'insight-lines' }, record.items.map((it) =>
     h('li', null,
       h('p', { class: 'insight-line' }, it.line),
-      h('p', { class: 'insight-evidence' }, evidenceText(it.candidate, names)))));
+      h('div', { class: 'insight-foot' },
+        h('p', { class: 'insight-evidence' }, evidenceText(it.candidate, names)),
+        onAsk
+          ? h('button', { class: 'btn insight-ask', type: 'button', onclick: () => onAsk(it) }, icon('sparkle'), '対処の例を聞く')
+          : null))));
 }
 
-/** 1回分の結果（見出し・行・「大きく表示」） */
-export function insightRecordView(record, names) {
+/** 1回分の結果（見出し・行・「大きく表示」）。opts.onAsk があれば各行に「対処の例を聞く」 */
+export function insightRecordView(record, names, opts = {}) {
   return h('div', { class: 'insight-record' },
     insightMeta(record),
-    insightLines(record, names),
+    insightLines(record, names, opts.onAsk || null),
     h('div', { class: 'row' },
       h('button', { class: 'btn big', type: 'button', onclick: () => showBig(record, names) }, icon('expand'), '大きく表示')));
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   handleInsight, parseModelOutput, filterInsights, sanitizeCandidates, buildRequestBody, buildUserPayload,
   safeEqual, allowedOrigins, SYSTEM_PROMPT, DEFAULT_MODEL, ANTHROPIC_URL,
+  ADVICE_SYSTEM_PROMPT, sanitizeAdvicePayload, buildAdviceRequestBody, filterAdvice,
 } from '../worker/insight.js';
 import worker from '../worker/index.js';
 
@@ -169,4 +170,108 @@ test('システムプロンプトは SPEC 5-6 のとおり', () => {
   assert.match(SYSTEM_PROMPT, /^あなたは高校女子バスケットボール部のアナリスト補助です。/);
   assert.match(SYSTEM_PROMPT, /戦術の指示や助言は書かない。事実だけを書く。/);
   assert.match(SYSTEM_PROMPT, /出力は次のJSONのみ：\{"insights":\[\{"candidateId":"\.\.\.","line":"\.\.\."\}\]\}$/);
+});
+
+// ---- 対処の例（kind: advice） ----
+
+const advicePayload = {
+  kind: 'advice',
+  quarter: 2,
+  isHalftime: true,
+  inProgress: false,
+  score: { us: 28, opp: 31, byQuarter: { us: [15, 13], opp: [14, 17] } },
+  defenses: { opp: '2-2-1プレス', us: 'マンツー' },
+  insight: {
+    line: '自チーム、後半ターンオーバー4本（プレス5回中）',
+    candidate: { id: 'c2', category: 'turnovers', subject: '自チーム', situation: 'ターンオーバー（2-2-1プレス）', made: 4, att: 5, scope: '後半', name: 'ハナコ' },
+  },
+  question: '  どう運べばいい？\n',
+  qa: [{ id: 'press-221', title: '2-2-1オールコートゾーンプレスに対する攻め方' }, { id: 'press-turnovers', title: 'プレスでターンオーバーが続く' }],
+};
+
+test('対処の例：AI に渡すのは決まった項目だけ。答えは例を最大3つ・一覧にある Q&A だけ', async () => {
+  let sent = null;
+  const reply = JSON.stringify({
+    options: [
+      { label: '中央に1人入れる', detail: 'ハーフライン手前の中央で受けて前を向く。' },
+      { label: '逆サイドへ戻す', detail: 'スローインした4が後ろに立ち、逆サイドへ。' },
+      { label: '  ', detail: '見出しがないので捨てる' },
+      { label: '4つ目', detail: '数が多いので捨てる' },
+      { label: '5つ目', detail: '数が多いので捨てる' },
+    ],
+    related: ['press-221', 'no-such-id', 'press-221', 'press-turnovers'],
+  });
+  const fetchImpl = async (url, init) => {
+    sent = { url, body: JSON.parse(init.body), headers: init.headers };
+    return anthropicReply(reply)();
+  };
+  const res = await handleInsight(req(advicePayload), { ...env, ADVICE_MODEL: 'claude-sonnet-5-5' }, { fetchImpl });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.options.length, 3);
+  assert.deepEqual(body.options[0], { label: '中央に1人入れる', detail: 'ハーフライン手前の中央で受けて前を向く。' });
+  assert.deepEqual(body.related, ['press-221', 'press-turnovers']);
+  // 送った内容
+  assert.equal(sent.url, ANTHROPIC_URL);
+  assert.equal(sent.body.model, 'claude-sonnet-5-5');
+  assert.equal(sent.body.system, ADVICE_SYSTEM_PROMPT);
+  assert.equal(sent.body.output_config.format.type, 'json_schema');
+  const user = JSON.parse(sent.body.messages[0].content);
+  assert.equal(user.question, 'どう運べばいい？');
+  assert.equal(user.insight.candidate.name, undefined, '名前は送らない');
+  assert.equal(user.insight.candidate.att, 5);
+  assert.deepEqual(user.defenses, { opp: '2-2-1プレス', us: 'マンツー' });
+  assert.equal(user.qa.length, 2);
+});
+
+test('対処の例：特筆データも質問もなければ 400。AI は呼ばない', async () => {
+  let called = false;
+  const fetchImpl = async () => {
+    called = true;
+    return anthropicReply('{}')();
+  };
+  const res = await handleInsight(req({ ...advicePayload, insight: null, question: '   ' }), env, { fetchImpl });
+  assert.equal(res.status, 400);
+  assert.equal(called, false);
+});
+
+test('対処の例：パスコードが違えば 401、AI の出力が読めなければ 502', async () => {
+  assert.equal((await handleInsight(req(advicePayload, { pass: 'wrong' }), env)).status, 401);
+  const bad = await handleInsight(req(advicePayload), env, { fetchImpl: anthropicReply('対処の例です') });
+  assert.equal(bad.status, 502);
+  const refused = await handleInsight(req(advicePayload), env, { fetchImpl: anthropicReply('{}', { stop_reason: 'refusal' }) });
+  assert.equal(refused.status, 502);
+});
+
+test('対処の例：モデルは ADVICE_MODEL → MODEL → 既定の順', () => {
+  const p = sanitizeAdvicePayload(advicePayload);
+  assert.equal(buildAdviceRequestBody(p, {}).model, DEFAULT_MODEL);
+  assert.equal(buildAdviceRequestBody(p, { MODEL: 'm1' }).model, 'm1');
+  assert.equal(buildAdviceRequestBody(p, { MODEL: 'm1', ADVICE_MODEL: 'm2' }).model, 'm2');
+  // 質問は200字まで
+  assert.equal(sanitizeAdvicePayload({ ...advicePayload, question: 'あ'.repeat(500) }).question.length, 200);
+  assert.deepEqual(filterAdvice({ options: 'x', related: null }, []), { options: [], related: [] });
+});
+
+test('AI への指示：事実だけ・推測しない・5ファウルは退場（特筆データ）。対処の例は「〜すべき」と書かない・判断はコーチ', () => {
+  assert.match(SYSTEM_PROMPT, /推測/);
+  assert.match(SYSTEM_PROMPT, /5つで退場/);
+  assert.match(ADVICE_SYSTEM_PROMPT, /〜すべき/);
+  assert.match(ADVICE_SYSTEM_PROMPT, /決めるのはコーチ/);
+  assert.match(ADVICE_SYSTEM_PROMPT, /TO/);
+  assert.ok(!/顧問/.test(SYSTEM_PROMPT + ADVICE_SYSTEM_PROMPT));
+});
+
+test('Cloudflare の画面に貼る1ファイル版（dashboard.js）は insight.js と同じ中身', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { makeDashboard } = await import('../worker/make-dashboard.mjs');
+  const src = readFileSync(new URL('../worker/insight.js', import.meta.url), 'utf8');
+  const dash = readFileSync(new URL('../worker/dashboard.js', import.meta.url), 'utf8');
+  assert.equal(dash, makeDashboard(src), 'insight.js を変えたら node worker/make-dashboard.mjs で作り直す');
+  // 1ファイルで動く：入口から特筆データと対処の例の両方を受ける
+  const mod = await import('../worker/dashboard.js');
+  const res = await mod.default.fetch(req({ ...payload, candidates: [] }), env);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { insights: [] });
+  assert.equal((await mod.default.fetch(req(payload, { path: '/other' }), env)).status, 404);
 });

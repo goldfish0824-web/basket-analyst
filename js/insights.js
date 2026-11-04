@@ -236,7 +236,8 @@ function foulTrouble(events, quarter, inProgress) {
       if (!isFoulTrouble(value, quarter)) continue;
       out.push({
         category: team === 'us' ? 'foul_trouble' : 'opp_foul_trouble', team, player,
-        subject: whoLabel(team, player), situation: 'ファウル', value, scope,
+        // FIBA：個人ファウル5つで退場
+        subject: whoLabel(team, player), situation: value >= 5 ? '5ファウルで退場' : 'ファウル', value, scope,
       });
     }
   }
@@ -414,7 +415,7 @@ export function localLine(c) {
       return `${c.scope}のOR、自チーム${c.us}・相手${c.opp}`;
     case 'foul_trouble':
     case 'opp_foul_trouble':
-      return `${c.subject}、ファウル${c.value}（${c.scope}）`;
+      return c.value >= 5 ? `${c.subject}、5ファウルで退場（${c.scope}）` : `${c.subject}、ファウル${c.value}（${c.scope}）`;
     case 'free_throws':
       return `${c.subject}、${c.scope}のFTは${c.att}本中${c.made}本`;
     case 'run':
@@ -439,7 +440,7 @@ export function evidenceText(c, names = {}) {
       break;
     case 'foul_trouble':
     case 'opp_foul_trouble':
-      main = `個人ファウル ${c.value}`;
+      main = c.value >= 5 ? `個人ファウル ${c.value}（退場）` : `個人ファウル ${c.value}`;
       break;
     case 'run':
       main = `得点 自チーム${c.us}・相手${c.opp}`;

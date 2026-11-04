@@ -86,6 +86,12 @@ export function requestAdvice(settings, payload, opts = {}) {
   return postToWorker(settings, payload, { timeoutMs: ADVICE_TIMEOUT_MS, ...opts });
 }
 
+/** AIふりかえり（試合後。Sonnet で文章が長いので90秒まで待つ） */
+export const REPORT_TIMEOUT_MS = 90000;
+export function requestReport(settings, payload, opts = {}) {
+  return postToWorker(settings, payload, { timeoutMs: REPORT_TIMEOUT_MS, ...opts });
+}
+
 /** 接続テスト：候補0件で送る（Worker は AI を呼ばずに空の結果を返す） */
 export function testConnection(settings, opts) {
   return requestInsights(

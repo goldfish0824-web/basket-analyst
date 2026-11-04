@@ -1,6 +1,6 @@
 // Service Worker：アプリ本体をキャッシュして、電波がなくても開けるようにする。
 // ファイルを追加・変更したら CACHE_VERSION を上げる（tests/sw.test.js が一覧の漏れを確認する）。
-const CACHE_VERSION = 'v15';
+const CACHE_VERSION = 'v16';
 const CACHE_NAME = `basket-analyst-${CACHE_VERSION}`;
 
 const ASSETS = [
@@ -18,6 +18,7 @@ const ASSETS = [
   './js/input.js',
   './js/insights.js',
   './js/advice.js',
+  './js/report.js',
   './js/model.js',
   './js/qa.js',
   './js/qa-data.js',

@@ -1,7 +1,7 @@
 // 振り返り画面（SPEC 6章）：プレー一覧 → 動画の該当場面へ、チェックポイント、集計・AI特筆データの再表示
 import * as db from '../db.js';
-import { h, replace, toast, formatDate, icon } from '../ui.js';
-import { describeEvent, quarterLabel, sortNumbers, TEAM_LABEL } from '../model.js';
+import { h, replace, toast, formatDate, formatDateTime, icon } from '../ui.js';
+import { describeEvent, quarterLabel, sortNumbers, TEAM_LABEL, uuid } from '../model.js';
 import { ZONE_LABELS } from '../court.js';
 import { scoreOf, maxQuarter } from '../stats.js';
 import {
@@ -10,15 +10,18 @@ import {
 } from '../review.js';
 import { videoEditor } from './video-editor.js';
 import { insightRecordView, insightMetaText } from './insight-view.js';
+import { buildReportPayload, acceptReport, reportText, cleanNote, MAX_COACH_NOTE } from '../report.js';
+import { requestReport, reasonText, isConfigured } from '../ai.js';
 import { quarterTable, boxSection, chartSection, teamSection } from './summary.js';
 
 const TABS = [
-  { key: 'plays', label: 'プレー一覧・動画' },
+  { key: 'plays', label: 'プレー・動画' },
   { key: 'check', label: 'チェックポイント' },
   { key: 'ai', label: 'AI特筆データ' },
+  { key: 'report', label: 'AIふりかえり' },
   { key: 'box', label: 'ボックススコア' },
   { key: 'chart', label: 'シュートチャート' },
-  { key: 'team', label: 'チーム指標・守備隊形別' },
+  { key: 'team', label: 'チーム指標・隊形別' },
 ];
 
 function sessionGet(k) {
@@ -76,6 +79,7 @@ export async function renderReview(root, params, app) {
     if (tab === 'plays') replace(content, playsSection());
     else if (tab === 'check') replace(content, checkSection());
     else if (tab === 'ai') replace(content, aiSection());
+    else if (tab === 'report') replace(content, reportSection());
     else if (tab === 'box') replace(content, h('section', { class: 'card' }, h('h2', null, 'クォーター別得点'), quarterTable(events)), boxSection(game, events));
     else if (tab === 'chart') replace(content, chartSection(game, events));
     else replace(content, teamSection(game, events, app.settings.defenses));
@@ -267,6 +271,136 @@ export async function renderReview(root, params, app) {
         : null,
       body,
       h('p', { class: 'field-note' }, '◯／△／× はもう一度押すと外れます。目標値のある項目は試合の数字から自動で ◯／× を出します。評価とメモはこの試合に保存されます。'));
+  }
+
+  // ---- AIふりかえり（試合後。試合全体の数字から、良かった点・課題・練習の例） ----
+  let reportBusy = false;
+
+  function reportView(rec) {
+    const block = (cls, title, list) => (list.length
+      ? h('section', { class: ['report-block', cls] },
+        h('h3', null, title),
+        h('ul', null, list.map((x) => h('li', null,
+          h('p', { class: 'rp-point' }, x.point),
+          x.evidence ? h('p', { class: 'rp-ev' }, x.evidence) : null))))
+      : null);
+    const copyBtn = h('button', { class: 'btn', type: 'button' }, icon('share'), '文章をコピー');
+    const copyArea = h('div', { class: 'report-copy' });
+    copyBtn.addEventListener('click', async () => {
+      const text = reportText(rec, { opponent: game.opponent || '', date: formatDate(game.date), score });
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('コピーしました');
+      } catch {
+        // コピーできない端末では、選んでコピーできる欄を出す
+        const ta = h('textarea', { class: 'report-copy-text', rows: '8', readonly: true, 'aria-label': 'ふりかえりの文章' });
+        ta.value = text;
+        replace(copyArea, h('p', { class: 'field-note' }, '下の文章を長押しして「すべてを選択」→「コピー」してください。'), ta);
+        ta.focus();
+        ta.select();
+      }
+    });
+    return h('div', { class: 'report' },
+      h('p', { class: 'insight-meta' }, `${formatDateTime(rec.createdAt)} 作成`, h('span', { class: 'src ai' }, 'AIふりかえり')),
+      rec.summary ? h('p', { class: 'report-summary' }, rec.summary) : null,
+      h('div', { class: 'report-grid' },
+        block('good', '良かった点', rec.good),
+        block('issue', '課題', rec.issues)),
+      rec.practice.length
+        ? h('section', { class: 'report-block practice' },
+          h('h3', null, '練習の例'),
+          h('ol', null, rec.practice.map((x) => h('li', null,
+            h('p', { class: 'rp-point' }, x.menu, x.minutes ? h('span', { class: 'rp-min' }, `${x.minutes}分`) : null),
+            x.issue ? h('p', { class: 'rp-issue' }, `課題：${x.issue}`) : null,
+            h('p', { class: 'rp-detail' }, x.detail)))))
+        : null,
+      rec.watch.length
+        ? h('section', { class: 'report-block watch' },
+          h('h3', null, '次の試合で見る数字'),
+          h('ul', null, rec.watch.map((w) => h('li', null, icon('chart'), w))))
+        : null,
+      rec.coachNote ? h('p', { class: 'muted report-note-sent' }, `AIに伝えたこと：${rec.coachNote}`) : null,
+      h('p', { class: 'field-note' }, 'AIが試合の数字から作った例です。決めるのはコーチです。'),
+      h('div', { class: 'row' }, copyBtn),
+      copyArea);
+  }
+
+  function reportSection() {
+    const reports = [...(game.reports || [])].sort((a, b) => b.createdAt - a.createdAt);
+    const note = h('textarea', {
+      class: 'report-note', rows: '2', maxlength: String(MAX_COACH_NOTE), 'aria-label': 'AIに伝えたいこと（任意）',
+      placeholder: '例：次は県大会。2-3ゾーンの相手が多いので、その攻めを重点に（選手の名前は書かないでください）',
+    });
+    note.value = game.reportNote || '';
+    const status = h('p', { class: 'ai-status', 'aria-live': 'polite' });
+    const result = h('div', { class: 'report-list' });
+    const noScore = score.us + score.opp === 0;
+    const btn = h('button', { class: 'btn primary big', type: 'button', disabled: noScore || reportBusy },
+      icon('sparkle'), reports.length ? 'もう一度作る' : 'AIふりかえりを作る');
+
+    function drawReports() {
+      const list = [...(game.reports || [])].sort((a, b) => b.createdAt - a.createdAt);
+      if (!list.length) {
+        replace(result);
+        return;
+      }
+      const [latest, ...older] = list;
+      replace(result,
+        reportView(latest),
+        older.length
+          ? h('details', { class: 'ai-history' },
+            h('summary', null, `前に作ったふりかえり（${older.length}件）`),
+            older.map(reportView))
+          : null);
+    }
+
+    btn.addEventListener('click', async () => {
+      if (!isConfigured(app.settings)) {
+        status.textContent = 'AIが未設定です。「設定」→「AI接続」で Worker の URL とスタッフ用パスコードを入れてください。';
+        return;
+      }
+      reportBusy = true;
+      btn.disabled = true;
+      note.disabled = true;
+      const started = Date.now();
+      const tick = () => {
+        status.textContent = `AIが作成中…（${Math.round((Date.now() - started) / 1000)}秒。最大90秒）`;
+      };
+      tick();
+      const timer = setInterval(tick, 1000);
+      game.reportNote = cleanNote(note.value);
+      const payload = buildReportPayload({ game, events, defenses: app.settings.defenses || [], coachNote: game.reportNote });
+      const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+      const r = await requestReport(app.settings, payload, { online });
+      clearInterval(timer);
+      let report = null;
+      let reason = '';
+      if (r.ok) {
+        report = acceptReport(r.data);
+        if (!report) reason = 'AIの応答を読めません';
+      } else {
+        reason = r.reason === 'timeout' ? '90秒で応答がありません' : reasonText(r);
+      }
+      if (report) game.reports = [...(game.reports || []), { id: uuid(), createdAt: Date.now(), coachNote: game.reportNote, ...report }];
+      await saveGame();
+      reportBusy = false;
+      btn.disabled = false;
+      note.disabled = false;
+      status.textContent = report ? '' : `作れませんでした（${reason}）。もう一度押すか、時間をおいて試してください。`;
+      if (report) replace(btn, icon('sparkle'), 'もう一度作る');
+      drawReports();
+    });
+
+    drawReports();
+    return h('section', { class: 'card report-card' },
+      h('div', { class: 'card-head' }, h('h2', null, 'AIふりかえり（試合全体）'), btn),
+      h('p', { class: 'report-lead' },
+        '試合全体の数字とチェック項目の評価（◯△×）をAIに送り、良かった点・課題・練習の例・次の試合で見る数字を作ります。',
+        '選手の名前・相手校名・チェック項目のメモは送りません。文章の質を優先して Sonnet を使うので、20〜40秒ほどかかります。決めるのはコーチです。'),
+      noScore ? h('p', { class: 'muted' }, 'まだ得点の記録がありません。試合を記録してから作れます。') : null,
+      h('label', { class: 'field' }, h('span', null, 'AIに伝えたいこと（任意・400字まで）'), note),
+      status,
+      result);
   }
 
   // ---- AI特筆データ（保存した結果の再表示） ----

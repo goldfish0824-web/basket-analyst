@@ -204,6 +204,8 @@ export function newGame({ id, date, tournament = '', opponent = '', roster = [],
     insights: [],
     // AIに聞いた「対処の例」（クォーター終了画面）
     advice: [],
+    // 試合後の AIふりかえり
+    reports: [],
     // 記録中の状態（いまの守備隊形）。イベントには記録時の隊形がそれぞれ付く
     live: { usDF: first, oppDF: first },
     createdAt: Date.now(),

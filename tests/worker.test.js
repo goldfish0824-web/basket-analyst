@@ -4,6 +4,7 @@ import {
   handleInsight, parseModelOutput, filterInsights, sanitizeCandidates, buildRequestBody, buildUserPayload,
   safeEqual, allowedOrigins, SYSTEM_PROMPT, DEFAULT_MODEL, ANTHROPIC_URL,
   ADVICE_SYSTEM_PROMPT, sanitizeAdvicePayload, buildAdviceRequestBody, filterAdvice,
+  REPORT_SYSTEM_PROMPT, sanitizeReportPayload, buildReportRequestBody, filterReport, cleanReportValue, DEFAULT_REPORT_MODEL,
 } from '../worker/insight.js';
 import worker from '../worker/index.js';
 
@@ -274,4 +275,84 @@ test('Cloudflare の画面に貼る1ファイル版（dashboard.js）は insight
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { insights: [] });
   assert.equal((await mod.default.fetch(req(payload, { path: '/other' }), env)).status, 404);
+});
+
+// ---- AIふりかえり（kind: game_report） ----
+
+const reportPayload = {
+  kind: 'game_report',
+  score: { us: 38, opp: 42, byQuarter: { us: [11, 7, 7, 13], opp: [11, 16, 6, 9] } },
+  us: { pts: 38, fg: [15, 40], tp: [2, 10], ft: [6, 10], or: 8, dr: 20, to: 14, pf: 12 },
+  players: [{ no: '#4', pts: 10, fg: [4, 6], name: 'ハナコ' }],
+  coachNote: 'あ'.repeat(600),
+  'bad key': 'x',
+  deep: { a: { b: { c: { d: { e: 1 } } } } },
+};
+
+test('ふりかえり：既定は Sonnet。断られたときの server-side fallback を付ける。名前などは捨てる', async () => {
+  let sent = null;
+  const reply = JSON.stringify({
+    summary: '後半にターンオーバーが増えた。',
+    good: [{ point: 'ゴール下', evidence: '7本中6本' }],
+    issues: [{ point: 'ターンオーバー', evidence: '14本' }],
+    practice: [{ issue: 'ターンオーバー', menu: 'プレス突破', detail: '中央で受ける。', minutes: 15 }],
+    watch: ['ターンオーバーの数'],
+  });
+  const fetchImpl = async (url, init) => {
+    sent = { body: JSON.parse(init.body), headers: init.headers };
+    return anthropicReply(reply)();
+  };
+  const res = await handleInsight(req(reportPayload), env, { fetchImpl });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.good[0].point, 'ゴール下');
+  assert.equal(body.practice[0].minutes, 15);
+  assert.equal(sent.body.model, 'claude-sonnet-5-5');
+  assert.equal(sent.body.system, REPORT_SYSTEM_PROMPT);
+  assert.equal(sent.body.fallbacks, 'default');
+  assert.equal(sent.headers['anthropic-beta'], 'server-side-fallback-2026-07-01');
+  assert.equal(sent.body.output_config.effort, 'medium');
+  const user = JSON.parse(sent.body.messages[0].content);
+  assert.equal(user.players[0].name, undefined, '名前は捨てる');
+  assert.equal(user.players[0].pts, 10);
+  assert.equal(user.coachNote.length, 400);
+  assert.equal(user['bad key'], undefined);
+  assert.equal(user.kind, undefined);
+});
+
+test('ふりかえり：Haiku など fallback のないモデルには付けない。REPORT_MODEL で変えられる', () => {
+  const p = sanitizeReportPayload(reportPayload);
+  const haiku = buildReportRequestBody(p, { REPORT_MODEL: 'claude-haiku-5-5' });
+  assert.equal(haiku.model, 'claude-haiku-5-5');
+  assert.equal(haiku.fallbacks, undefined);
+  assert.equal(buildReportRequestBody(p, {}).model, DEFAULT_REPORT_MODEL);
+  // 試合中の2つは Haiku のまま
+  assert.equal(DEFAULT_MODEL, 'claude-haiku-5-5');
+});
+
+test('ふりかえり：得点がなければ 400（AI は呼ばない）。読めない応答は 502', async () => {
+  let called = false;
+  const res = await handleInsight(req({ kind: 'game_report', score: { us: 0, opp: 0 } }), env, { fetchImpl: async () => { called = true; return anthropicReply('{}')(); } });
+  assert.equal(res.status, 400);
+  assert.equal(called, false);
+  const bad = await handleInsight(req(reportPayload), env, { fetchImpl: anthropicReply(JSON.stringify({ summary: 'x', good: [], issues: [], practice: [], watch: [] })) });
+  assert.equal(bad.status, 502);
+  assert.deepEqual(filterReport(null), null);
+});
+
+test('ふりかえりの入力の写し方：キーは英数字、文字は120字（メモは400字）、配列は40件、深さは4まで', () => {
+  const v = cleanReportValue({ a: 'x'.repeat(500), list: Array.from({ length: 60 }, (_, i) => i), 'ﾀﾞﾒ': 1, deep: { a: { b: { c: { d: 1 } } } }, n: Infinity });
+  assert.equal(v.a.length, 120);
+  assert.equal(v.list.length, 40);
+  assert.equal(v['ﾀﾞﾒ'], undefined);
+  assert.deepEqual(v.deep, { a: { b: {} } });
+  assert.equal(v.n, undefined);
+});
+
+test('AI への指示（ふりかえり）：「〜すべき」と書かない・判断はコーチ・名前を書かない・数字を作らない', () => {
+  assert.match(REPORT_SYSTEM_PROMPT, /〜すべき/);
+  assert.match(REPORT_SYSTEM_PROMPT, /決めるのはコーチ/);
+  assert.match(REPORT_SYSTEM_PROMPT, /名前は書かない/);
+  assert.match(REPORT_SYSTEM_PROMPT, /作ったり、計算し直したりしない/);
+  assert.ok(!/顧問/.test(REPORT_SYSTEM_PROMPT));
 });

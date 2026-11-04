@@ -64,6 +64,7 @@ export function parseBackup(text) {
       checklist: [],
       insights: [],
       advice: [],
+      reports: [],
       videos: [],
       oppNumbers: [],
       roster: [],

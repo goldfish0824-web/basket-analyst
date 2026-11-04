@@ -195,6 +195,12 @@ export function formatDate(iso) {
   return `${y}/${m}/${d}（${wd}）`;
 }
 
+/** 「11/4 20:30」（時刻つき） */
+export function formatDateTime(ms) {
+  const d = new Date(ms);
+  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 export function todayString() {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');

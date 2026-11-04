@@ -5,14 +5,16 @@
 // 既存の中継 Worker に組み込めるよう、外部ライブラリなしで書いている（README.md 参照）。
 //
 //   ルート       POST /basket/insight（ブラウザからの OPTIONS も受ける）
-//                本文の kind で分ける：quarter_insight（AI特筆データ）／advice（対処の例を聞く）
+//                本文の kind で分ける：quarter_insight（AI特筆データ）／advice（対処の例を聞く）／game_report（AIふりかえり）
 //   認証         ヘッダー X-Staff-Pass ＝ シークレット STAFF_PASS（違えば 401）
 //   CORS         既定は https://goldfish0824-web.github.io のみ。変数 ALLOWED_ORIGINS（カンマ区切り）で変更
 //   モデル       変数 MODEL（既定 claude-haiku-5-5。品質を上げたいときは claude-sonnet-5-5）
 //                対処の例だけ別のモデルにするときは変数 ADVICE_MODEL
+//                AIふりかえり（試合後）は変数 REPORT_MODEL（既定 claude-sonnet-5-5。文章の質を優先）
 //   APIキー      シークレット ANTHROPIC_API_KEY（リポジトリに実値を書かない）
 //   応答         特筆データ {"insights":[{"candidateId":"c1","line":"…"}]}
 //                対処の例   {"options":[{"label":"…","detail":"…"}],"related":["press-221"]}
+//                ふりかえり {"summary":"…","good":[…],"issues":[…],"practice":[…],"watch":[…]}
 //                AI の出力を読めなければ 502
 
 export const SYSTEM_PROMPT = `あなたは高校女子バスケットボール部のアナリスト補助です。
@@ -66,6 +68,68 @@ export const MAX_ADVICE_OPTIONS = 3;
 export const MAX_ADVICE_RELATED = 2;
 export const MAX_QUESTION_LENGTH = 200;
 const ADVICE_UPSTREAM_TIMEOUT_MS = 18000; // アプリ側は20秒で諦める
+
+// ---- AIふりかえり（kind: game_report。試合後） ----
+export const REPORT_SYSTEM_PROMPT = `あなたは高校女子バスケットボール部のアナリスト補助です。
+試合が終わったあと、アプリが計算した試合全体の数字から、コーチとチームがふりかえるための材料を作ります。決めるのはコーチです。
+
+入力：
+- score：得点（byQuarter はクォーター別。5つ目以降は延長）。us・opp：チーム合計（fg・tp・ft は [成功, 試投]、or・dr はリバウンド、to はターンオーバー、pf はファウル）。
+- indicators：ppp（1回の攻撃あたりの得点）、orPct（オフェンスリバウンド率）、セカンドチャンス得点、速攻得点。
+- players：自チームの背番号ごとの数字。oppScorers：相手の主な得点者。
+- byDefense：自チームの攻撃を、相手の守備隊形別に。oppByDefense：相手の攻撃を、自チームの守備隊形別に。
+- zones・oppZones：シュートの場所別。turnoverTags：自チームのターンオーバーの種類。
+- insights：試合中にコーチへ伝えた特筆データ。checklist：チェック項目の評価（◯△×）と目標の自動判定。
+- coachNote：コーチからのメモ（空のこともある）。あれば重点として扱う。
+
+ルール：
+- 数字は入力にあるものだけを使う。作ったり、計算し直したりしない。割合を書くときは「8本中3本」のように入力の数字で書く。
+- 試投が3本未満の数字は根拠にしない。
+- summary：試合の要点を2文以内（100字以内）。
+- good：良かった点を2〜3個。point（40字以内）と、根拠の数字 evidence（40字以内）。
+- issues：課題を2〜3個。point と evidence。選手を責める言い方はしない。
+- practice：課題に合わせた練習の例を2〜3個。issue（どの課題か。20字以内）、menu（練習名。20字以内）、detail（やり方。100字以内）、minutes（目安の分数。5〜30）。公立高校の女子チームが、ふだんの練習時間の中で取り入れやすいものにする。
+- watch：次の試合で見る数字を2〜3個（30字以内）。
+- 「〜すべき」「〜しなければならない」とは書かない。「〜する」「〜という練習がある」のように、例として書く。
+- ルールは FIBA（個人ファウル5つで退場、チームファウル5つ目から2本のフリースローなど）。「ターンオーバー」「タイムアウト」は略さない（「TO」と書かない）。
+- 選手は背番号で書く（例：#5）。名前は書かない。
+- 出力は次のJSONのみ：{"summary":"...","good":[{"point":"...","evidence":"..."}],"issues":[{"point":"...","evidence":"..."}],"practice":[{"issue":"...","menu":"...","detail":"...","minutes":15}],"watch":["..."]}`;
+
+export const DEFAULT_REPORT_MODEL = 'claude-sonnet-5-5';
+export const DEFAULT_REPORT_MAX_TOKENS = 8000;
+export const DEFAULT_REPORT_EFFORT = 'medium';
+const REPORT_UPSTREAM_TIMEOUT_MS = 85000; // アプリ側は90秒で諦める
+// 安全のための判定で断られたとき、Anthropic が勧めるモデルで自動でやり直す（Claude API の server-side fallback）。
+// Haiku など対応していないモデルには付けない
+export const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
+const DEFAULT_FALLBACK_MODELS = new Set(['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-fable-5-1']);
+
+const PAIR = { type: 'object', properties: { point: { type: 'string' }, evidence: { type: 'string' } }, required: ['point', 'evidence'], additionalProperties: false };
+const REPORT_OUTPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: { type: 'string' },
+    good: { type: 'array', items: PAIR },
+    issues: { type: 'array', items: PAIR },
+    practice: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          issue: { type: 'string' },
+          menu: { type: 'string' },
+          detail: { type: 'string' },
+          minutes: { type: 'integer' },
+        },
+        required: ['issue', 'menu', 'detail', 'minutes'],
+        additionalProperties: false,
+      },
+    },
+    watch: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['summary', 'good', 'issues', 'practice', 'watch'],
+  additionalProperties: false,
+};
 
 const ADVICE_OUTPUT_SCHEMA = {
   type: 'object',
@@ -338,17 +402,97 @@ export function filterAdvice(obj, qaIds) {
   return { options, related };
 }
 
+// ---- AIふりかえり ----
+
+const KEY_RE = /^[A-Za-z][A-Za-z0-9]{0,23}$/;
+// 名前・メモ・相手校名は AI に渡さない（アプリも送らないが、念のため Worker でも捨てる）
+const DROP_KEYS = new Set(['name', 'names', 'memo', 'opponent', 'roster', 'tournament']);
+
+/**
+ * 試合の数字を、決まった形のまま長さと深さだけ制限して写す（数・短い文字・配列・オブジェクト）。
+ * キーは英数字だけ。文字は120字（coachNote は400字）まで、配列は40件まで、深さは4まで。
+ */
+export function cleanReportValue(v, depth = 0, key = '') {
+  if (v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'string') return v.slice(0, key === 'coachNote' ? 400 : 120);
+  if (depth >= 4) return null;
+  if (Array.isArray(v)) return v.slice(0, 40).map((x) => cleanReportValue(x, depth + 1)).filter((x) => x !== null);
+  if (typeof v === 'object') {
+    const out = {};
+    for (const [k, x] of Object.entries(v)) {
+      if (!KEY_RE.test(k) || DROP_KEYS.has(k)) continue;
+      const c = cleanReportValue(x, depth + 1, k);
+      if (c !== null) out[k] = c;
+    }
+    return out;
+  }
+  return null;
+}
+
+/** ふりかえりの入力。得点がなければ null（AI を呼ばない） */
+export function sanitizeReportPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const out = cleanReportValue(payload);
+  delete out.kind;
+  const score = out.score || {};
+  if (!Number.isFinite(score.us) || !Number.isFinite(score.opp) || score.us + score.opp <= 0) return null;
+  return out;
+}
+
+export function buildReportRequestBody(reportPayload, env = {}) {
+  const model = env.REPORT_MODEL || DEFAULT_REPORT_MODEL;
+  const body = {
+    model,
+    max_tokens: Number(env.REPORT_MAX_TOKENS) || DEFAULT_REPORT_MAX_TOKENS,
+    system: REPORT_SYSTEM_PROMPT,
+    output_config: {
+      effort: env.REPORT_EFFORT || DEFAULT_REPORT_EFFORT,
+      format: { type: 'json_schema', schema: REPORT_OUTPUT_SCHEMA },
+    },
+    messages: [{ role: 'user', content: JSON.stringify(reportPayload) }],
+  };
+  if (DEFAULT_FALLBACK_MODELS.has(model)) body.fallbacks = 'default';
+  return body;
+}
+
+/** ふりかえりの応答を、決まった長さ・数に切りそろえる。良かった点も課題もなければ null */
+export function filterReport(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  const pairs = (list) => (Array.isArray(list) ? list : [])
+    .map((x) => ({ point: cleanText(x && x.point, 80), evidence: cleanText(x && x.evidence, 80) }))
+    .filter((x) => x.point)
+    .slice(0, 4);
+  const good = pairs(obj.good);
+  const issues = pairs(obj.issues);
+  if (!good.length && !issues.length) return null;
+  const practice = (Array.isArray(obj.practice) ? obj.practice : [])
+    .map((x) => ({
+      issue: cleanText(x && x.issue, 40),
+      menu: cleanText(x && x.menu, 40),
+      detail: cleanText(x && x.detail, 200),
+      minutes: Number.isFinite(Number(x && x.minutes)) ? Math.max(0, Math.min(60, Math.round(Number(x.minutes)))) : 0,
+    }))
+    .filter((x) => x.menu && x.detail)
+    .slice(0, 4);
+  const watch = (Array.isArray(obj.watch) ? obj.watch : []).map((x) => cleanText(x, 60)).filter(Boolean).slice(0, 4);
+  return { summary: cleanText(obj.summary, 300), good, issues, practice, watch };
+}
+
 /** Claude に問い合わせて JSON を返す。だめなら { error, status? } */
 async function callClaude(body, env, fetchImpl, timeoutMs) {
   let res;
   try {
+    const headers = {
+      'content-type': 'application/json',
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': ANTHROPIC_VERSION,
+    };
+    if (body.fallbacks) headers['anthropic-beta'] = FALLBACK_BETA;
     res = await fetchImpl(ANTHROPIC_URL, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': env.ANTHROPIC_API_KEY,
-        'anthropic-version': ANTHROPIC_VERSION,
-      },
+      headers,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -384,6 +528,16 @@ export async function handleInsight(request, env = {}, opts = {}) {
     payload = await request.json();
   } catch {
     return json({ error: 'bad_request' }, 400, cors);
+  }
+  if (payload && payload.kind === 'game_report') {
+    const report = sanitizeReportPayload(payload);
+    if (!report) return json({ error: 'bad_request' }, 400, cors);
+    if (!env.ANTHROPIC_API_KEY) return json({ error: 'not_configured' }, 500, cors);
+    const r = await callClaude(buildReportRequestBody(report, env), env, fetchImpl, REPORT_UPSTREAM_TIMEOUT_MS);
+    if (r.error) return json(r.status ? { error: r.error, status: r.status } : { error: r.error }, 502, cors);
+    const filtered = filterReport(parseJsonOutput(r.data));
+    if (!filtered) return json({ error: 'bad_ai_response' }, 502, cors);
+    return json(filtered, 200, cors);
   }
   if (payload && payload.kind === 'advice') {
     const advice = sanitizeAdvicePayload(payload);

@@ -33,7 +33,7 @@ export function insightRecordView(record, names) {
       h('button', { class: 'btn big', type: 'button', onclick: () => showBig(record, names) }, icon('expand'), '大きく表示')));
 }
 
-/** 主顧問に見せる用：黒背景・特大文字の全画面。どこをタップしても閉じる */
+/** コーチに見せる用：黒背景・特大文字の全画面。どこをタップしても閉じる */
 export function showBig(record, names) {
   const close = () => {
     overlay.remove();

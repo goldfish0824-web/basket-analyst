@@ -1,4 +1,4 @@
-// 場面別Q&A：よくある場面と対処の例（一般的な考え方の下書き。チームの方針は主顧問と決めてメモに残す）
+// 場面別Q&A：よくある場面と対処の例（一般的な考え方の下書き。チームの方針はコーチと決めてメモに残す）
 import { h, replace, icon } from '../ui.js';
 import {
   QA_ITEMS, QA_CATEGORIES, CATEGORY_LABEL, searchQa, countByCategory, itemDiagrams, unitDiagrams, patternLabel, resolveQaId,
@@ -32,7 +32,7 @@ async function toggleFavorite(app, id) {
   return next.includes(id);
 }
 
-const NOTE = '一般的な考え方の例です（下書き）。チームとしての方針は主顧問と相談して決め、各場面の「チームのメモ」に残してください。';
+const NOTE = '一般的な考え方の例です（下書き）。チームとしての方針はコーチと相談して決め、各場面の「チームのメモ」に残してください。';
 
 /** 一覧 */
 export async function renderQaList(root, params, app) {
@@ -149,7 +149,7 @@ export async function renderQaDetail(root, params, app) {
     saved.textContent = '保存しました';
   };
   const memo = h('textarea', {
-    class: 'qa-memo', rows: '4', maxlength: '1000', placeholder: '主顧問と決めたこと、練習で確かめたことなど',
+    class: 'qa-memo', rows: '4', maxlength: '1000', placeholder: 'コーチと決めたこと、練習で確かめたことなど',
     'aria-label': 'チームのメモ',
     oninput: (ev) => {
       clearTimeout(timer);

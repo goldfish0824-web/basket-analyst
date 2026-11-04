@@ -246,7 +246,7 @@ export async function renderReview(root, params, app) {
         h('h2', null, 'チェックポイント'),
         h('p', null, (app.settings.checklistTemplate || []).length
           ? '対象のチェック項目がありません。「設定」→「チェック項目」で、この振り返りで使う項目の「対象」にチェックを入れます。'
-          : 'チェック項目がありません。「設定」→「チェック項目」で作ります（項目は主顧問と相談して決める前提です）。'),
+          : 'チェック項目がありません。「設定」→「チェック項目」で作ります（項目はコーチと相談して決める前提です）。'),
         h('a', { class: 'btn', href: '#/settings' }, '設定を開く'));
     }
     drawItems();

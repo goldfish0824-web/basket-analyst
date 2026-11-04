@@ -333,7 +333,7 @@ function checklistEditor(initial) {
       h('button', { class: 'btn', type: 'button', onclick: () => { onlyActive.checked = false; applyFilter(); addRow().querySelector('.ck-label').focus(); changed(); } }, '＋ 項目を追加')),
     h('details', { class: 'ck-bulk-box' },
       h('summary', null, 'まとめて追加（1行に1項目）'),
-      h('p', { class: 'field-note' }, '主顧問と決めた項目の一覧をコピーして貼り付けられます。行頭の「・」「1.」などは外します。同じ名前の項目は追加しません。'),
+      h('p', { class: 'field-note' }, 'コーチと決めた項目の一覧をコピーして貼り付けられます。行頭の「・」「1.」などは外します。同じ名前の項目は追加しません。'),
       bulkText,
       h('div', { class: 'row' },
         h('button', {

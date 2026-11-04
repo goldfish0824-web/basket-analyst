@@ -57,6 +57,16 @@ export async function renderSummary(root, params, app) {
       h('div', { class: 'head-actions' },
         h('button', { class: 'btn', type: 'button', onclick: () => exportGame(game) }, icon('share'), '書き出す'),
         h('a', { class: 'btn', href: `#/game/${game.id}/review` }, icon('film'), '振り返り'),
+        h('a', {
+          class: 'btn', href: `#/game/${game.id}/review`,
+          onclick: () => {
+            try {
+              sessionStorage.setItem('reviewTab', 'report');
+            } catch {
+              // 保存できなくても振り返り画面は開く
+            }
+          },
+        }, icon('sparkle'), 'AIふりかえり'),
         h('a', { class: 'btn primary', href: `#/game/${game.id}/record` }, icon('pencil'), '記録へ'))),
     h('div', { class: 'page wide' },
       h('div', { class: 'summary-top' },

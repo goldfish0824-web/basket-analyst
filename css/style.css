@@ -1477,3 +1477,12 @@ table.zones th, table.zones td { padding: 6px 8px; font-size: 14px; }
   .report-grid { grid-template-columns: 1fr; }
   .qa-diagram { position: static; }
 }
+
+/* 新しい版のお知らせ */
+.update-banner {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; max-width: calc(100% - 32px);
+  padding: 10px 12px 10px 16px; border-radius: 14px; background: var(--surface-3); border: 1px solid var(--accent);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35); font-weight: 700;
+}
+.update-text { flex: 1 1 auto; }

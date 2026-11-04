@@ -1,6 +1,6 @@
 // Service Worker：アプリ本体をキャッシュして、電波がなくても開けるようにする。
 // ファイルを追加・変更したら CACHE_VERSION を上げる（tests/sw.test.js が一覧の漏れを確認する）。
-const CACHE_VERSION = 'v16';
+const CACHE_VERSION = 'v17';
 const CACHE_NAME = `basket-analyst-${CACHE_VERSION}`;
 
 const ASSETS = [
@@ -25,6 +25,7 @@ const ASSETS = [
   './js/review.js',
   './js/stats.js',
   './js/ui.js',
+  './js/update.js',
   './js/views/diagram.js',
   './js/views/home.js',
   './js/views/insight-view.js',
@@ -51,6 +52,13 @@ self.addEventListener('install', (event) => {
       .then((cache) => cache.addAll(ASSETS.map((url) => new Request(url, { cache: 'reload' }))))
       .then(() => self.skipWaiting()),
   );
+});
+
+// 設定画面の「アプリの版」：いま動いている版を答える
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'version' && event.ports && event.ports[0]) {
+    event.ports[0].postMessage({ version: CACHE_VERSION });
+  }
 });
 
 self.addEventListener('activate', (event) => {

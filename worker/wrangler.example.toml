@@ -11,3 +11,10 @@ compatibility_date = "2026-10-01"
 # ALLOWED_ORIGINS = "https://goldfish0824-web.github.io"
 # MAX_TOKENS = "1000"
 # EFFORT = "low"
+# PBKDF2_ITERATIONS = "10000"       # パスワードのハッシュの回数（有料プランなら増やせる）
+
+# 記録の共有（ログイン・同期）を使うときは D1 をつなぐ（database_id は自分のもの）
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "basket-db"
+# database_id = "（npx wrangler d1 create basket-db で表示される ID）"

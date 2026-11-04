@@ -34,8 +34,9 @@ export function insightEndpoint(base) {
   return s.endsWith(INSIGHT_PATH) ? s : `${s}${INSIGHT_PATH}`;
 }
 
+/** AI を使えるか：Worker の URL と、スタッフ用パスコードかログイン */
 export function isConfigured(settings) {
-  return !!(settings && settings.workerUrl && settings.staffPass);
+  return !!(settings && settings.workerUrl && (settings.staffPass || settings.authToken));
 }
 
 /**
@@ -54,7 +55,10 @@ export async function postToWorker(settings, payload, opts = {}) {
   try {
     const res = await fetchImpl(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Staff-Pass': settings.staffPass },
+      // ログインしていればログインの鍵、していなければスタッフ用パスコード
+      headers: settings.authToken
+        ? { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.authToken}` }
+        : { 'Content-Type': 'application/json', 'X-Staff-Pass': settings.staffPass },
       body: JSON.stringify(payload),
       signal: ctrl.signal,
     });

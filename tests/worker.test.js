@@ -263,17 +263,19 @@ test('AI への指示：事実だけ・推測しない・5ファウルは退場�
   assert.ok(!/顧問/.test(SYSTEM_PROMPT + ADVICE_SYSTEM_PROMPT));
 });
 
-test('Cloudflare の画面に貼る1ファイル版（dashboard.js）は insight.js と同じ中身', async () => {
+test('Cloudflare の画面に貼る1ファイル版（dashboard.js）は auth.js・insight.js・sync.js と同じ中身', async () => {
   const { readFileSync } = await import('node:fs');
-  const { makeDashboard } = await import('../worker/make-dashboard.mjs');
-  const src = readFileSync(new URL('../worker/insight.js', import.meta.url), 'utf8');
+  const { makeDashboard, SOURCES } = await import('../worker/make-dashboard.mjs');
+  const sources = Object.fromEntries(SOURCES.map((n) => [n, readFileSync(new URL(`../worker/${n}`, import.meta.url), 'utf8')]));
   const dash = readFileSync(new URL('../worker/dashboard.js', import.meta.url), 'utf8');
-  assert.equal(dash, makeDashboard(src), 'insight.js を変えたら node worker/make-dashboard.mjs で作り直す');
-  // 1ファイルで動く：入口から特筆データと対処の例の両方を受ける
+  assert.equal(dash, makeDashboard(sources), 'worker/ のファイルを変えたら node worker/make-dashboard.mjs で作り直す');
+  assert.ok(!/^import /m.test(dash), 'ファイル同士の import は外す');
+  // 1ファイルで動く：AI（/basket/insight）・ログイン（DB がなければ 503）・ほかの道は 404
   const mod = await import('../worker/dashboard.js');
   const res = await mod.default.fetch(req({ ...payload, candidates: [] }), env);
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { insights: [] });
+  assert.equal((await mod.default.fetch(req({}, { path: '/basket/auth/login' }), env)).status, 503);
   assert.equal((await mod.default.fetch(req(payload, { path: '/other' }), env)).status, 404);
 });
 

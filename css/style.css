@@ -1486,3 +1486,22 @@ table.zones th, table.zones td { padding: 6px 8px; font-size: 14px; }
   box-shadow: 0 10px 30px rgba(0, 0, 0, .35); font-weight: 700;
 }
 .update-text { flex: 1 1 auto; }
+
+/* 記録の共有（ログイン） */
+.account-card .card-head { flex-wrap: wrap; gap: 8px; }
+.account-who { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; color: var(--ok, var(--accent)); }
+.sync-status { margin: 4px 0 10px; font-weight: 700; color: var(--ink-2); }
+.sync-status.error { color: var(--crit); }
+.sync-status.offline { color: var(--warn); }
+.sync-status.syncing { color: var(--accent); }
+.account-setup, .account-sub { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 4px; }
+.account-setup summary, .account-sub summary { min-height: var(--tap); display: flex; align-items: center; cursor: pointer; font-weight: 800; color: var(--ink-2); }
+.account-sub h3 { margin: 14px 0 6px; font-size: 15px; }
+.user-list { display: grid; gap: 8px; }
+.user-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.user-row.disabled { opacity: .6; }
+.user-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.user-name { font-weight: 800; }
+.user-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.home-sync { margin: 0 0 10px; font-size: 13px; font-weight: 700; color: var(--ink-2); display: flex; align-items: center; gap: 6px; }
+.home-sync .icon { width: 16px; height: 16px; }

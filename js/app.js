@@ -11,6 +11,7 @@ import { renderReview } from './views/review.js';
 import { renderQaList, renderQaDetail } from './views/qa.js';
 import { migrateQaSettings } from './qa.js';
 import { registerUpdates, isUpdateReady } from './update.js';
+import { startSync } from './sync.js';
 
 const root = document.getElementById('app');
 
@@ -24,6 +25,18 @@ const app = {
   go(hash) {
     if (location.hash === hash) route();
     else location.hash = hash;
+  },
+  // 共有から記録を受け取ったとき（gameIds：変わった試合）
+  onRemoteChange(gameIds) {
+    const view = document.body.dataset.view;
+    if (view === 'home') {
+      route();
+      return;
+    }
+    const m = /^#\/game\/([^/]+)/.exec(location.hash);
+    if (m && gameIds.has(decodeURIComponent(m[1])) && view !== 'record') {
+      toast('共有から新しい記録が届きました（画面を開き直すと反映されます）', { ms: 4000 });
+    }
   },
 };
 
@@ -118,6 +131,7 @@ async function start() {
   await route();
 
   registerUpdates();
+  startSync(app);
   window.addEventListener('offline', () => toast('オフラインです（記録・集計はそのまま使えます）'));
 }
 

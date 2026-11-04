@@ -18,7 +18,7 @@
   - `sw.js`、`manifest.webmanifest`
   - `worker/`（Cloudflare Worker のコードと README）
   - `tests/`（`node --test` で実行）
-- 保存は端末内の IndexedDB。サーバー保存はフェーズ3まで作らない。
+- 保存は端末内の IndexedDB が基本。ログインすると Cloudflare D1（Worker 経由）と同期する（フェーズ3の一部。生徒用アカウントは今後）。
 - 画面確認は iPad 横向き（1180×820、1024×768）を基準にする。タップ領域は44px以上。
 
 ## してはいけないこと

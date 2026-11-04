@@ -1,9 +1,11 @@
-# AI特筆データの中継 Worker
+# AI と記録の共有の Worker
 
-アプリの「AI特筆データ」は、この Worker を通して Claude に問い合わせます。APIキーとシステムプロンプトは Worker の中にだけ置き、iPad には置きません。
+アプリの AI（特筆データ・対処の例・ふりかえり）と、記録の共有（ログイン・同期）は、この Worker を通します。APIキーとシステムプロンプトは Worker の中にだけ置き、iPad には置きません。共有の記録は Cloudflare D1（データベース）に置きます。
 
-- `insight.js`：ハンドラー関数 `handleInsight(request, env)`（外部ライブラリなし）。AI特筆データと「対処の例」の両方を受ける
-- `dashboard.js`：**Cloudflare の画面で作った Worker にまるごと貼る1ファイル版**（`insight.js` と入口を1つにしたもの。`node worker/make-dashboard.mjs` で作る）
+- `auth.js`：ログイン（パスワードのハッシュ、ログインの鍵）と、データベースの表の準備
+- `insight.js`：AI のハンドラー `handleInsight(request, env)`（特筆データ・対処の例・ふりかえり）
+- `sync.js`：入口 `handleBasket(request, env)`（/basket/ で始まる道をまとめて受ける：AI・ログイン・アカウント・同期）
+- `dashboard.js`：**Cloudflare の画面で作った Worker にまるごと貼る1ファイル版**（上の3つと入口を1つにしたもの。`node worker/make-dashboard.mjs` で作る）
 - `index.js`：単独の Worker として動かすときの入口（wrangler 用）
 - `wrangler.example.toml`：単独で動かすときの設定例
 
@@ -46,12 +48,12 @@ APIキーのページ（https://platform.claude.com/settings/keys ）で「Creat
 ### 既存の中継 Worker に追加する（ダッシュボードで編集している場合）
 
 1. Cloudflare ダッシュボード → Workers & Pages → 既存の中継 Worker →「コードを編集」
-2. `insight.js` の中身をすべてコピーし、既存のコードの**いちばん上**に貼り付ける（`export` が付いたままで動きます）
+2. `dashboard.js` の中身から、いちばん下の「入口」（`export default { … }`）を除いた部分をコピーし、既存のコードの**いちばん上**に貼り付ける（`export` が付いたままで動きます）
 3. 既存の `fetch(request, env)` の**最初**に次の2行を足す（ブラウザの事前確認の OPTIONS もここで受けます）
 
    ```js
    const url = new URL(request.url);
-   if (url.pathname === '/basket/insight') return handleInsight(request, env);
+   if (url.pathname.startsWith('/basket/')) return handleBasket(request, env);
    ```
 
    すでに `const url = new URL(request.url);` がある場合は2行目だけ足します。
@@ -59,20 +61,22 @@ APIキーのページ（https://platform.claude.com/settings/keys ）で「Creat
 
 ### wrangler で管理している場合
 
-1. `insight.js` を既存の Worker のフォルダにコピー
+1. `auth.js`・`insight.js`・`sync.js` を既存の Worker のフォルダにコピー
 2. 入口のファイルで読み込み、`fetch` の最初で呼ぶ
 
    ```js
-   import { handleInsight } from './insight.js';
+   import { handleBasket } from './sync.js';
 
    export default {
      async fetch(request, env, ctx) {
        const url = new URL(request.url);
-       if (url.pathname === '/basket/insight') return handleInsight(request, env);
+       if (url.pathname.startsWith('/basket/')) return handleBasket(request, env);
        // …既存の処理…
      },
    };
    ```
+
+   記録の共有を使うときは、`wrangler.toml` に D1 のバインディング（`binding = "DB"`）を足す（`wrangler.example.toml` 参照）
 
 3. 次のコマンドでデプロイ
 
@@ -134,6 +138,43 @@ curl -s -X POST "https://<Worker名>.<アカウント名>.workers.dev/basket/ins
   -d '{"kind":"quarter_insight","quarterEnded":2,"isHalftime":true,"score":{"us":0,"opp":0,"byQuarter":{"us":[],"opp":[]}},"candidates":[]}'
 ```
 
+## 5. 記録の共有（ログイン）を使う：データベース（D1）をつなぐ
+
+ログインすると、iPad・ノートパソコンなど、どの端末でも同じ記録が見られます。記録は Cloudflare D1（データベース）に置きます。**無料プランの範囲で使えます**（今の公開情報では、D1 は5GBまで・Workers は1日10万回の呼び出しまで無料。部活の記録なら1シーズンでも数MB程度）。
+
+1. Cloudflare ダッシュボード →「Storage & databases」（ストレージとデータベース）→「D1 SQL database」→「Create database」
+   - 名前：`basket-db` など（何でもよい）。場所は自動のままでよい
+2. Workers & Pages →（AI で使っている Worker。例：`basket-insight`）→「Settings」→「Bindings」→「Add binding」→「D1 database」
+   - Variable name（変数名）：**`DB`**（大文字。1文字も違わないように）
+   - D1 database：手順1で作ったデータベース →「Add binding」（保存・デプロイ）
+3. 「Edit code」→ [`dashboard.js`](dashboard.js) をまるごと貼って「Deploy」（表は最初の問い合わせのときに自動で作ります。SQL を貼る必要はありません）
+4. アプリの「設定」→「記録の共有（ログイン）」
+   - Worker の URL を入れ、「初めて使うとき（最初の管理者を作る）」を開く
+   - 表示名・ID・パスワードと、**スタッフ用パスコード（`STAFF_PASS`）**を入れて「管理者を作ってログイン」（はじめの1回だけ。2人目からは作れません）
+   - ほかの先生のアカウントは、ログインしたあと「スタッフのアカウント（管理者だけ）」で作り、ID と最初のパスワードを本人に伝える
+5. ほかの端末（ノートパソコンなど）は、アプリを開いて「設定」→「記録の共有」で、Worker の URL と自分の ID・パスワードでログインする
+
+- 記録はこれまでどおり端末の中にも保存するので、電波がなくても記録できます。つながったときに自動で同期します（記録中は20秒ほどまとめて送ります）
+- 1つの試合は1台で記録してください（ほかの端末からは見るだけ）。2台で同時に記録すると、記録の順番が乱れることがあります
+- デモ試合は共有しません
+- チームで共有する設定：名簿のひな形・守備隊形の選択肢・チェック項目・巻き戻し秒数・場面別Q&A のチームのメモ（配色・お気に入り・AI接続は端末ごと）
+- ログインしている端末では、AI もログインで使えます（スタッフ用パスコードは空でよい）
+- パスワードは、塩つきのハッシュ（PBKDF2）だけをデータベースに置きます。同じ ID で10分に5回まちがえると、15分ログインできません。ログインは180日で切れます
+- 生徒用のアカウント（見るだけ）は今後追加します
+
+### 変数（任意）
+
+| 名前 | 内容 |
+|---|---|
+| `PBKDF2_ITERATIONS` | パスワードのハッシュの回数。既定 `10000`（無料プランは1回の呼び出しで使える計算時間が短いため）。有料プランなら `100000` などに上げられる（上げた後に作ったパスワードから効く） |
+
+### しくみ（開発用）
+
+- 道：`POST /basket/auth/setup`（最初の管理者）、`POST /basket/auth/login`、`POST /basket/auth/logout`、`GET /basket/auth/me`、`POST /basket/auth/password`、`GET・POST /basket/users`（管理者）、`POST /basket/users/update`・`/delete`、`POST /basket/sync`
+- 同期：変更ごとに通し番号（rev）を付けて保存し、端末は「前回の続き」（cursor）より新しいものを受け取る。同じ記録が両方で変わったときは、端末で変えた時刻（updatedAt）が新しいほうを残す。消した記録は「消した印」で伝える
+- 1回の同期で、データベースへの命令は数回（無料プランの1回あたり50回の上限に収まる）。変更は JSON 1つにまとめて送り、SQLite の `json_each` で一度に書き込む
+- データベースがつながっていなければ、ログイン・同期の道は 503（`db_not_configured`）を返す。AI はそのまま使える
+
 ## うまく動かないとき
 
 「接続テスト」は通るのに、AI特筆データが「（自動抽出・AIなし）」になる場合は、次を順に確かめます。
@@ -150,6 +191,8 @@ curl -s -X POST "https://<Worker名>.<アカウント名>.workers.dev/basket/ins
 Worker のコードが更新されたとき（AI への指示文を変えたとき、新しい機能を足したときなど）は、「1. Worker にコードを入れる」の手順でもう一度貼り直してデプロイします（専用の Worker なら `dashboard.js` をまるごと）。シークレットと変数はそのまま残ります。
 
 「対処の例を聞く」で「AIの中継でエラーが起きました（400）」と出るときは、Worker のコードが古いままです。`dashboard.js` を貼り直してください。
+
+「記録の共有」で「Worker にデータベース（D1）がつながっていません」と出るときは、「5. 記録の共有」の手順2（バインディングの変数名が `DB`）を確かめてください。ログインで「Worker でエラーが起きました（404）」と出るときは、Worker のコードが古いままです（`dashboard.js` を貼り直す）。
 
 ## 対処の例（AIに聞く）
 

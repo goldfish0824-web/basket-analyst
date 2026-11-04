@@ -4,6 +4,7 @@ import { h, modal, confirmDialog, toast, formatDate, icon, brandMark } from '../
 import { sortGames, quarterState, quarterLabel } from '../model.js';
 import { scoreOf } from '../stats.js';
 import { installHint, exportAll, exportGame, createDemoGame, lastBackupText } from './shared.js';
+import { onSyncStatus, statusText, isLoggedIn } from '../sync.js';
 
 export async function renderHome(root, params, app) {
   const games = sortGames(await db.listGames());
@@ -31,6 +32,14 @@ export async function renderHome(root, params, app) {
           },
         }, icon('sparkle'), 'デモ試合を作る'));
 
+  // 記録の共有：ログインしていれば同期の状態を1行で
+  const syncLine = isLoggedIn(app.settings) ? h('p', { class: 'home-sync', 'aria-live': 'polite' }) : null;
+  const unsubscribe = syncLine
+    ? onSyncStatus((st) => {
+      syncLine.replaceChildren(icon('sync'), `共有（${app.settings.authUser.displayName}）：${statusText(st, app.settings)}`);
+    })
+    : null;
+
   root.append(
     h('header', { class: 'page-head' },
       h('div', { class: 'brand' },
@@ -42,6 +51,7 @@ export async function renderHome(root, params, app) {
         h('a', { class: 'btn primary', href: '#/new' }, icon('plus'), '新しい試合'))),
     h('div', { class: 'page' },
       installHint(app, { compact: true }),
+      syncLine,
       h('section', { class: 'backup-bar' },
         h('div', null, h('strong', null, 'バックアップ'), ' ', backupStatus),
         h('button', {
@@ -53,6 +63,7 @@ export async function renderHome(root, params, app) {
       h('h2', { class: 'section-title' }, '試合一覧', games.length ? h('span', { class: 'count' }, games.length) : null),
       list),
   );
+  return unsubscribe;
 }
 
 function status(info) {

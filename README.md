@@ -106,6 +106,8 @@ AI を使うには、中継 Worker に追加してから（下の「Workerの追
 
 AI特筆データの中継は、既存の Cloudflare Worker にハンドラーを1つ足して使います。手順・シークレット（`STAFF_PASS`、`ANTHROPIC_API_KEY`）・変数（`MODEL` など）は [worker/README.md](worker/README.md) にまとめました。デプロイは利用者が行います。
 
+Claude の APIキーの作り方（クレジットと月の上限、**ワークスペースを必ず1つ選ぶこと**、有効期限）、AI が動いているかの確かめ方、うまく動かないときの確認表も [worker/README.md](worker/README.md) にあります。
+
 ### パソコンで試す（開発用）
 
 ```bash

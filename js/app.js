@@ -10,6 +10,7 @@ import { renderQuarter } from './views/quarter.js';
 import { renderReview } from './views/review.js';
 import { renderQaList, renderQaDetail } from './views/qa.js';
 import { migrateQaSettings } from './qa.js';
+import { registerUpdates, isUpdateReady } from './update.js';
 
 const root = document.getElementById('app');
 
@@ -68,6 +69,11 @@ async function route() {
   }
   document.querySelectorAll('.modal-backdrop').forEach((el) => el.remove());
   const params = parse(location.hash);
+  // 新しい版を受け取っていたら、ホーム画面に戻ったところで読み込み直す
+  if (params.view === 'home' && isUpdateReady()) {
+    location.reload();
+    return;
+  }
   document.body.dataset.view = params.view;
   const container = h('div', { class: `view view-${params.view}` });
   replace(root, container);
@@ -111,11 +117,7 @@ async function start() {
   window.addEventListener('hashchange', route);
   await route();
 
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('./sw.js').catch((err) => {
-      console.warn('Service Worker を登録できません', err);
-    });
-  }
+  registerUpdates();
   window.addEventListener('offline', () => toast('オフラインです（記録・集計はそのまま使えます）'));
 }
 

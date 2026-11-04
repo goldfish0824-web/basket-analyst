@@ -1,4 +1,5 @@
 // 設定：バックアップ、ホーム画面追加の案内、名簿テンプレート、守備隊形の選択肢、チェック項目、振り返り、AI接続、デモ試合
+import { getVersion, checkNow } from '../update.js';
 import { h, toast, confirmDialog, isStandalone, icon, applyTheme } from '../ui.js';
 import { DEFAULT_DEFENSES, uuid } from '../model.js';
 import { insightEndpoint, testConnection, reasonText } from '../ai.js';
@@ -225,6 +226,7 @@ export async function renderSettings(root, params, app) {
           }, '接続テスト')),
         aiStatus,
         h('p', { class: 'field-note' }, 'URL とパスコードはこの端末の中だけに保存します（バックアップのファイルにも入れません）。Worker の用意は worker/README.md を見てください。')),
+      updateCard(),
       h('section', { class: 'card' },
         h('h2', null, 'デモ試合'),
         h('p', null, '架空の名前で約120件の記録が入った試合を作ります。集計・シュートチャートの確認に使えます。'),
@@ -236,7 +238,7 @@ export async function renderSettings(root, params, app) {
             app.go(`#/game/${g.id}/summary`);
           },
         }, 'デモ試合を作る')),
-      h('p', { class: 'muted small' }, 'バスケ・アナリスト v0.1')),
+      h('p', { class: 'muted small' }, 'BasketBall Analyst')),
   );
 }
 
@@ -404,3 +406,34 @@ function themeCard(app) {
     choice,
     h('p', { class: 'field-note' }, '明るい体育館で画面が見にくいときはライトにしてください。この iPad だけの設定です。'));
 }
+
+/** アプリの版と「最新の版を確かめる」 */
+function updateCard() {
+  const versionEl = h('span', null, '確かめています…');
+  getVersion().then((v) => {
+    versionEl.textContent = v ? `今の版：${v}` : '今の版：—（ブラウザで開いているときは、開くたびに最新になります）';
+  });
+  const status = h('p', { class: 'field-note', 'aria-live': 'polite' });
+  const btn = h('button', {
+    class: 'btn', type: 'button',
+    onclick: async () => {
+      btn.disabled = true;
+      status.textContent = '確かめています…';
+      const r = await checkNow();
+      if (r === 'updated') {
+        status.textContent = '新しい版になりました。読み込み直します…';
+        setTimeout(() => location.reload(), 600);
+        return;
+      }
+      status.textContent = r === 'latest' ? '最新の版です。' : 'この開き方では確かめられません。';
+      btn.disabled = false;
+    },
+  }, '最新の版を確かめる');
+  return h('section', { class: 'card' },
+    h('h2', null, 'アプリの版'),
+    h('p', null, versionEl),
+    h('div', { class: 'row' }, btn),
+    status,
+    h('p', { class: 'field-note' }, 'ホーム画面から開いたアプリも、前面に出したときに新しい版を自動で確かめます。新しい版になると、画面の下に「更新する」が出ます（ホーム画面ではそのまま読み込み直します）。記録は消えません。'));
+}
+

@@ -1,5 +1,7 @@
 // 設定：バックアップ、ホーム画面追加の案内、名簿テンプレート、守備隊形の選択肢、チェック項目、振り返り、AI接続、デモ試合
 import { getVersion, checkNow } from '../update.js';
+import { accountCard } from './account.js';
+import { isLoggedIn } from '../sync.js';
 import { h, toast, confirmDialog, isStandalone, icon, applyTheme } from '../ui.js';
 import { DEFAULT_DEFENSES, uuid } from '../model.js';
 import { insightEndpoint, testConnection, reasonText } from '../ai.js';
@@ -80,6 +82,7 @@ export async function renderSettings(root, params, app) {
     return v;
   };
 
+  const account = accountCard(app);
   root.append(
     h('header', { class: 'page-head' },
       h('a', { class: 'btn', href: '#/' }, icon('home'), 'ホーム'),
@@ -88,7 +91,9 @@ export async function renderSettings(root, params, app) {
     h('div', { class: 'page form' },
       h('section', { class: 'card emphasis' },
         h('h2', null, 'バックアップ'),
-        h('p', null, '記録はこの iPad の中だけに保存されています。試合のあとは「すべて書き出す」でファイルに保存してください（「ファイル」アプリやAirDropに送れます）。'),
+        h('p', null, isLoggedIn(app.settings)
+          ? '記録はこの端末と共有（ログイン先）の両方に保存されています。念のため、大会の前後などに「バックアップを書き出す」でファイルにも保存しておくと安心です。'
+          : '記録はこの iPad の中だけに保存されています。試合のあとは「すべて書き出す」でファイルに保存してください（「ファイル」アプリやAirDropに送れます）。下の「記録の共有（ログイン）」でログインすると、ほかの端末でも同じ記録が見られます。'),
         h('div', { class: 'row' },
           h('button', {
             class: 'btn primary big', type: 'button',
@@ -103,6 +108,7 @@ export async function renderSettings(root, params, app) {
             },
           }, icon('download'), 'バックアップを読み込む'),
           backupStatus)),
+      account.el,
       themeCard(app),
       isStandalone()
         ? h('section', { class: 'card' }, h('h2', null, 'ホーム画面から起動しています'), h('p', null, '電波がなくても記録・集計できます。'))
@@ -199,6 +205,9 @@ export async function renderSettings(root, params, app) {
       h('section', { class: 'card' },
         h('h2', null, 'AI接続（AI特筆データ）'),
         h('p', { class: 'field-note' }, 'クォーター終了画面の「AI特筆データ」で使います。未設定・通信できないときは、端末内の自動抽出（AIなし）で表示します。'),
+        isLoggedIn(app.settings)
+          ? h('p', { class: 'field-note' }, 'ログインしているので、スタッフ用パスコードは空でも AI を使えます。')
+          : null,
         h('div', { class: 'grid-2' },
           h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Worker の URL'), workerUrl),
           h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'スタッフ用パスコード'), staffPass)),
@@ -219,7 +228,8 @@ export async function renderSettings(root, params, app) {
               if (!v) return;
               aiStatus.textContent = '接続を確かめています…';
               aiStatus.className = 'ai-conn-status';
-              const r = await testConnection(v, { online: navigator.onLine !== false });
+              // ログインしていればログインの鍵でも確かめる
+              const r = await testConnection({ ...app.settings, ...v }, { online: navigator.onLine !== false });
               aiStatus.textContent = r.ok ? '接続できました' : `接続できません：${reasonText(r)}`;
               aiStatus.className = `ai-conn-status ${r.ok ? 'ok' : 'error'}`;
             },
@@ -240,6 +250,7 @@ export async function renderSettings(root, params, app) {
         }, 'デモ試合を作る')),
       h('p', { class: 'muted small' }, 'BasketBall Analyst')),
   );
+  return account.cleanup;
 }
 
 /**

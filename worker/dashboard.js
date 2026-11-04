@@ -1,12 +1,268 @@
 // ===== Cloudflare の画面で作った Worker に、このファイルをまるごと貼って「Deploy」する =====
-// （insight.js と、いちばん下の入口を1つにしたもの。自動で作っているので、直接は直さない）
+// （auth.js・insight.js・sync.js と、いちばん下の入口を1つにしたもの。自動で作っているので、直接は直さない）
 
+// ----- auth.js -----
+// ログイン（スタッフのアカウント）とデータベース（Cloudflare D1）の準備。外部ライブラリなし。
+// D1 は Worker の「バインディング」で DB という名前でつなぐ（worker/README.md 参照）。
+//
+//   パスワード   PBKDF2-SHA256（ランダムな塩つき）。回数は変数 PBKDF2_ITERATIONS（既定 10000。
+//                無料プランは1回の呼び出しの CPU 時間が短いため。有料プランなら増やせる）
+//   ログイン     成功すると「ログインの鍵」（ランダムな文字列）を返す。データベースにはそのハッシュだけを置く。
+//                180日で切れる。同じ ID で10分に5回まちがえると、15分ログインできない
+//   役割         admin（管理者：アカウントを作れる）／staff（スタッフ）／student（生徒：今後。今は同期できない）
+
+export const DEFAULT_PBKDF2_ITERATIONS = 10000;
+export const SESSION_DAYS = 180;
+export const MAX_FAILURES = 5;
+export const FAILURE_WINDOW_MS = 10 * 60 * 1000;
+export const LOCK_MS = 15 * 60 * 1000;
+export const ROLES = ['admin', 'staff', 'student'];
+
+export const SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  login_id TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  disabled INTEGER NOT NULL DEFAULT 0,
+  player_key TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  device TEXT,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS login_failures (
+  login_id TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  first_at INTEGER NOT NULL,
+  locked_until INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS games (
+  id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  rev INTEGER NOT NULL,
+  updated_by TEXT,
+  deleted INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS games_rev ON games(rev);
+CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  game_id TEXT NOT NULL,
+  data TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  rev INTEGER NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS events_rev ON events(rev);
+CREATE INDEX IF NOT EXISTS events_game ON events(game_id);
+CREATE TABLE IF NOT EXISTS team (
+  key TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  rev INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS team_rev ON team(rev);
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO meta (key, value) VALUES ('rev', 0);
+INSERT OR IGNORE INTO meta (key, value) VALUES ('schema', 1);`;
+
+// ---- 文字列・暗号の小道具 ----
+
+/** 長さに関係なく同じ時間で比べる（パスコードの照合） */
+export function safeEqual(a, b) {
+  const x = new TextEncoder().encode(String(a));
+  const y = new TextEncoder().encode(String(b));
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] || 0) ^ (y[i] || 0);
+  return diff === 0;
+}
+
+function toB64(bytes) {
+  let s = '';
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+}
+
+function fromB64(s) {
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function toHex(bytes) {
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function randomId(bytes = 16) {
+  const a = new Uint8Array(bytes);
+  crypto.getRandomValues(a);
+  return toHex(a);
+}
+
+/** ログインの鍵（推測できない長い文字列） */
+export function newToken() {
+  const a = new Uint8Array(32);
+  crypto.getRandomValues(a);
+  return toB64(a).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export async function sha256Hex(text) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text)));
+  return toHex(new Uint8Array(d));
+}
+
+async function pbkdf2(password, salt, iterations) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(password)), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256);
+  return new Uint8Array(bits);
+}
+
+export function iterationsFor(env = {}) {
+  const n = Number(env.PBKDF2_ITERATIONS);
+  return Number.isInteger(n) && n >= 1000 && n <= 600000 ? n : DEFAULT_PBKDF2_ITERATIONS;
+}
+
+/** 「pbkdf2$sha256$回数$塩$ハッシュ」の形で返す */
+export async function hashPassword(password, iterations = DEFAULT_PBKDF2_ITERATIONS) {
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  const hash = await pbkdf2(password, salt, iterations);
+  return `pbkdf2$sha256$${iterations}$${toB64(salt)}$${toB64(hash)}`;
+}
+
+export async function verifyPassword(password, stored) {
+  const parts = String(stored || '').split('$');
+  if (parts.length !== 5 || parts[0] !== 'pbkdf2' || parts[1] !== 'sha256') return false;
+  const iterations = Number(parts[2]);
+  if (!Number.isInteger(iterations) || iterations < 1) return false;
+  const hash = await pbkdf2(password, fromB64(parts[3]), iterations);
+  return safeEqual(toB64(hash), parts[4]);
+}
+
+// ---- 入力の検査 ----
+
+/** ID：英小文字・数字・「. _ -」で3〜32字 */
+export function normalizeLoginId(v) {
+  const s = String(v || '').trim().toLowerCase();
+  return /^[a-z0-9._-]{3,32}$/.test(s) ? s : null;
+}
+
+/** パスワード：8〜72字 */
+export function validPassword(v) {
+  return typeof v === 'string' && v.length >= 8 && v.length <= 72;
+}
+
+export function cleanName(v) {
+  const s = String(v || '').replace(/\s+/g, ' ').trim().slice(0, 30);
+  return s || null;
+}
+
+// ---- データベース ----
+
+/** D1 の exec は改行ごとに1文なので、1文を1行にまとめる */
+export function schemaLines(sql = SCHEMA_SQL) {
+  return sql.split(/;\s*\n/)
+    .map((x) => x.replace(/\s*\n\s*/g, ' ').replace(/;\s*$/, '').trim())
+    .filter(Boolean)
+    .map((x) => `${x};`)
+    .join('\n');
+}
+
+const schemaReady = new WeakSet();
+
+/** 表がなければ作る（Worker が起動して最初の1回だけ確かめる） */
+export async function ensureSchema(db) {
+  if (schemaReady.has(db)) return;
+  try {
+    await db.prepare("SELECT value FROM meta WHERE key = 'schema'").first();
+  } catch {
+    await db.exec(schemaLines());
+  }
+  schemaReady.add(db);
+}
+
+export function publicUser(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    loginId: row.login_id,
+    displayName: row.display_name,
+    role: row.role,
+    disabled: !!row.disabled,
+    playerKey: row.player_key || null,
+    createdAt: row.created_at,
+  };
+}
+
+export async function createSession(db, userId, device, now = Date.now()) {
+  const token = newToken();
+  await db.prepare('INSERT INTO sessions (token_hash, user_id, device, created_at, expires_at, last_used_at) VALUES (?1, ?2, ?3, ?4, ?5, ?4)')
+    .bind(await sha256Hex(token), userId, String(device || '').slice(0, 60), now, now + SESSION_DAYS * 24 * 3600 * 1000)
+    .run();
+  return token;
+}
+
+/** 「Authorization: Bearer 鍵」からログイン中のユーザーを探す。なければ null */
+export async function userFromRequest(request, env, now = Date.now()) {
+  if (!env || !env.DB) return null;
+  const m = /^Bearer\s+([A-Za-z0-9_-]{20,100})$/.exec(request.headers.get('Authorization') || '');
+  if (!m) return null;
+  await ensureSchema(env.DB);
+  const row = await env.DB.prepare(
+    'SELECT u.*, s.token_hash AS token_hash, s.expires_at AS expires_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?1',
+  ).bind(await sha256Hex(m[1])).first();
+  if (!row || row.disabled || row.expires_at < now) return null;
+  return { ...publicUser(row), tokenHash: row.token_hash };
+}
+
+/** AI の問い合わせを使えるか：スタッフ用パスコード、またはスタッフ・管理者のログイン */
+export async function isStaffRequest(request, env) {
+  const pass = request.headers.get('X-Staff-Pass') || '';
+  if (pass && env.STAFF_PASS && safeEqual(pass, env.STAFF_PASS)) return true;
+  const user = await userFromRequest(request, env);
+  return !!user && (user.role === 'admin' || user.role === 'staff');
+}
+
+/** ログインの失敗を数える。ロック中なら true */
+export async function isLocked(db, loginId, now = Date.now()) {
+  const row = await db.prepare('SELECT locked_until FROM login_failures WHERE login_id = ?1').bind(loginId).first();
+  return !!row && row.locked_until > now;
+}
+
+export async function recordFailure(db, loginId, now = Date.now()) {
+  const row = await db.prepare('SELECT count, first_at FROM login_failures WHERE login_id = ?1').bind(loginId).first();
+  const fresh = !row || now - row.first_at > FAILURE_WINDOW_MS;
+  const count = fresh ? 1 : row.count + 1;
+  const firstAt = fresh ? now : row.first_at;
+  const lockedUntil = count >= MAX_FAILURES ? now + LOCK_MS : 0;
+  await db.prepare(
+    'INSERT INTO login_failures (login_id, count, first_at, locked_until) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(login_id) DO UPDATE SET count = ?2, first_at = ?3, locked_until = ?4',
+  ).bind(loginId, lockedUntil ? 0 : count, firstAt, lockedUntil).run();
+}
+
+export async function clearFailures(db, loginId) {
+  await db.prepare('DELETE FROM login_failures WHERE login_id = ?1').bind(loginId).run();
+}
+
+// ----- insight.js -----
 // AI特筆データの中継（SPEC 5-6）。Cloudflare Worker のハンドラー関数。
 // 既存の中継 Worker に組み込めるよう、外部ライブラリなしで書いている（README.md 参照）。
 //
 //   ルート       POST /basket/insight（ブラウザからの OPTIONS も受ける）
 //                本文の kind で分ける：quarter_insight（AI特筆データ）／advice（対処の例を聞く）／game_report（AIふりかえり）
-//   認証         ヘッダー X-Staff-Pass ＝ シークレット STAFF_PASS（違えば 401）
+//   認証         ヘッダー X-Staff-Pass ＝ シークレット STAFF_PASS、またはスタッフのログイン（Authorization: Bearer。違えば 401）
 //   CORS         既定は https://goldfish0824-web.github.io のみ。変数 ALLOWED_ORIGINS（カンマ区切り）で変更
 //   モデル       変数 MODEL（既定 claude-haiku-5-5。品質を上げたいときは claude-sonnet-5-5）
 //                対処の例だけ別のモデルにするときは変数 ADVICE_MODEL
@@ -16,6 +272,8 @@
 //                対処の例   {"options":[{"label":"…","detail":"…"}],"related":["press-221"]}
 //                ふりかえり {"summary":"…","good":[…],"issues":[…],"practice":[…],"watch":[…]}
 //                AI の出力を読めなければ 502
+
+
 
 export const SYSTEM_PROMPT = `あなたは高校女子バスケットボール部のアナリスト補助です。
 クォーター終了時またはハーフタイムに、ベンチのスタッフがコーチへ伝える「特筆すべきデータ」を選びます。
@@ -201,27 +459,18 @@ export function corsHeaders(origin, env) {
   if (!origin || !allowedOrigins(env).includes(origin)) return {};
   return {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Staff-Pass',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Staff-Pass, Authorization',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
 }
 
-function json(body, status, headers) {
+export function json(body, status, headers) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers },
   });
-}
-
-/** 長さに関係なく同じ時間で比べる（パスコードの照合） */
-export function safeEqual(a, b) {
-  const x = new TextEncoder().encode(String(a));
-  const y = new TextEncoder().encode(String(b));
-  let diff = x.length ^ y.length;
-  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] || 0) ^ (y[i] || 0);
-  return diff === 0;
 }
 
 /** 候補を決まった項目だけにする（名前など想定外の項目は送らない） */
@@ -520,8 +769,7 @@ export async function handleInsight(request, env = {}, opts = {}) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, cors);
 
-  const pass = request.headers.get('X-Staff-Pass') || '';
-  if (!env.STAFF_PASS || !safeEqual(pass, env.STAFF_PASS)) return json({ error: 'unauthorized' }, 401, cors);
+  if (!(await isStaffRequest(request, env))) return json({ error: 'unauthorized' }, 401, cors);
 
   let payload;
   try {
@@ -566,11 +814,346 @@ export async function handleInsight(request, env = {}, opts = {}) {
   return json({ insights: filterInsights(parsed.insights, candidates.map((c) => c.id)) }, 200, cors);
 }
 
-// ===== 入口：/basket/insight だけを受ける =====
+// ----- sync.js -----
+// 記録の共有（ログインと同期）。Cloudflare D1（バインディング名 DB）に保存する。外部ライブラリなし。
+//
+//   入口         handleBasket(request, env)：/basket/ で始まる道をまとめて受ける（AI の /basket/insight もここから）
+//   最初の管理者 POST /basket/auth/setup   { setupPass（STAFF_PASS）, loginId, displayName, password } アカウントが1つもないときだけ
+//   ログイン     POST /basket/auth/login   { loginId, password, device } → { token, user }
+//                POST /basket/auth/logout  GET /basket/auth/me   POST /basket/auth/password { current, next }
+//   アカウント   GET /basket/users   POST /basket/users { loginId, displayName, password, role }（管理者だけ）
+//                POST /basket/users/update { id, displayName?, role?, disabled?, password? }   POST /basket/users/delete { id }
+//   同期         POST /basket/sync { cursor, push: { games, events, team }, limit }
+//                → { cursor, items: [{ t: 'g'|'e'|'s', id, gameId?, data, deleted, rev }], more, applied }
+//
+// 同期のしくみ：変更ごとに通し番号（rev）を付けて保存し、端末は「どこまで受け取ったか」（cursor）より新しいものを受け取る。
+// 同じ記録が両方で変わったときは、端末で変えた時刻（updatedAt）の新しいほうを残す。消した記録は「消した印」で伝える。
+
+export const MAX_PUSH = 300;
+export const DEFAULT_PULL_LIMIT = 500;
+export const MAX_PULL_LIMIT = 1000;
+export const MAX_GAME_BYTES = 400000;
+export const MAX_EVENT_BYTES = 8000;
+export const MAX_TEAM_BYTES = 200000;
+
+async function readJson(request) {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
+}
+
+/** /basket/ で始まる道の入口 */
+export async function handleBasket(request, env = {}, opts = {}) {
+  const url = new URL(request.url);
+  const path = url.pathname.replace(/\/+$/, '');
+  if (path === '/basket/insight') return handleInsight(request, env, opts);
+
+  const origin = request.headers.get('Origin');
+  const cors = corsHeaders(origin, env);
+  if (origin && !cors['Access-Control-Allow-Origin']) return json({ error: 'origin_not_allowed' }, 403, {});
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  if (!env.DB) return json({ error: 'db_not_configured' }, 503, cors);
+  await ensureSchema(env.DB);
+
+  try {
+    switch (`${request.method} ${path}`) {
+      case 'POST /basket/auth/setup': return await setup(request, env, cors);
+      case 'POST /basket/auth/login': return await login(request, env, cors);
+      case 'POST /basket/auth/logout': return await logout(request, env, cors);
+      case 'GET /basket/auth/me': return await me(request, env, cors);
+      case 'POST /basket/auth/password': return await changePassword(request, env, cors);
+      case 'GET /basket/users': return await listUsers(request, env, cors);
+      case 'POST /basket/users': return await createUser(request, env, cors);
+      case 'POST /basket/users/update': return await updateUser(request, env, cors);
+      case 'POST /basket/users/delete': return await deleteUser(request, env, cors);
+      case 'POST /basket/sync': return await sync(request, env, cors);
+      default: return json({ error: 'not_found' }, 404, cors);
+    }
+  } catch (err) {
+    console.error(err);
+    return json({ error: 'server_error' }, 500, cors);
+  }
+}
+
+// ---- ログイン ----
+
+async function setup(request, env, cors) {
+  const body = await readJson(request);
+  if (!body) return json({ error: 'bad_request' }, 400, cors);
+  if (!env.STAFF_PASS || !safeEqual(String(body.setupPass || ''), env.STAFF_PASS)) return json({ error: 'unauthorized' }, 401, cors);
+  const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM users').first();
+  if (count && count.n > 0) return json({ error: 'already_set_up' }, 409, cors);
+  const loginId = normalizeLoginId(body.loginId);
+  const displayName = cleanName(body.displayName);
+  if (!loginId || !displayName || !validPassword(body.password)) return json({ error: 'invalid_input' }, 400, cors);
+  const now = Date.now();
+  const id = randomId();
+  await env.DB.prepare('INSERT INTO users (id, login_id, display_name, role, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)')
+    .bind(id, loginId, displayName, 'admin', await hashPassword(body.password, iterationsFor(env)), now).run();
+  const token = await createSession(env.DB, id, body.device, now);
+  const user = publicUser(await env.DB.prepare('SELECT * FROM users WHERE id = ?1').bind(id).first());
+  return json({ token, user }, 200, cors);
+}
+
+async function login(request, env, cors) {
+  const body = await readJson(request);
+  const loginId = normalizeLoginId(body && body.loginId);
+  if (!loginId || typeof body.password !== 'string') return json({ error: 'invalid_input' }, 400, cors);
+  const now = Date.now();
+  if (await isLocked(env.DB, loginId, now)) return json({ error: 'locked' }, 429, cors);
+  const row = await env.DB.prepare('SELECT * FROM users WHERE login_id = ?1').bind(loginId).first();
+  const ok = row && !row.disabled && (await verifyPassword(body.password, row.password_hash));
+  if (!ok) {
+    await recordFailure(env.DB, loginId, now);
+    return json({ error: 'wrong_login' }, 401, cors);
+  }
+  await clearFailures(env.DB, loginId);
+  const token = await createSession(env.DB, row.id, body.device, now);
+  return json({ token, user: publicUser(row) }, 200, cors);
+}
+
+async function requireUser(request, env, cors, roles = ['admin', 'staff']) {
+  const user = await userFromRequest(request, env);
+  if (!user) return { res: json({ error: 'unauthorized' }, 401, cors) };
+  if (!roles.includes(user.role)) return { res: json({ error: 'forbidden' }, 403, cors) };
+  return { user };
+}
+
+async function logout(request, env, cors) {
+  const { user, res } = await requireUser(request, env, cors, ROLES);
+  if (res) return res;
+  await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?1').bind(user.tokenHash).run();
+  return json({ ok: true }, 200, cors);
+}
+
+async function me(request, env, cors) {
+  const { user, res } = await requireUser(request, env, cors, ROLES);
+  if (res) return res;
+  const { tokenHash, ...rest } = user;
+  return json({ user: rest }, 200, cors);
+}
+
+async function changePassword(request, env, cors) {
+  const { user, res } = await requireUser(request, env, cors, ROLES);
+  if (res) return res;
+  const body = await readJson(request);
+  if (!body || !validPassword(body.next)) return json({ error: 'invalid_input' }, 400, cors);
+  const row = await env.DB.prepare('SELECT password_hash FROM users WHERE id = ?1').bind(user.id).first();
+  if (!row || !(await verifyPassword(String(body.current || ''), row.password_hash))) return json({ error: 'wrong_login' }, 401, cors);
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET password_hash = ?1, updated_at = ?2 WHERE id = ?3').bind(await hashPassword(body.next, iterationsFor(env)), Date.now(), user.id),
+    // ほかの端末のログインは切る（今の端末はそのまま）
+    env.DB.prepare('DELETE FROM sessions WHERE user_id = ?1 AND token_hash <> ?2').bind(user.id, user.tokenHash),
+  ]);
+  return json({ ok: true }, 200, cors);
+}
+
+// ---- アカウント（管理者だけ） ----
+
+async function listUsers(request, env, cors) {
+  const { res } = await requireUser(request, env, cors, ['admin']);
+  if (res) return res;
+  const { results } = await env.DB.prepare('SELECT * FROM users ORDER BY created_at').all();
+  return json({ users: results.map(publicUser) }, 200, cors);
+}
+
+async function createUser(request, env, cors) {
+  const { res } = await requireUser(request, env, cors, ['admin']);
+  if (res) return res;
+  const body = await readJson(request);
+  const loginId = normalizeLoginId(body && body.loginId);
+  const displayName = cleanName(body && body.displayName);
+  // 生徒のアカウントは今後（今は管理者とスタッフだけ作れる）
+  const role = body && (body.role === 'admin' || body.role === 'staff') ? body.role : null;
+  if (!loginId || !displayName || !role || !validPassword(body.password)) return json({ error: 'invalid_input' }, 400, cors);
+  const exists = await env.DB.prepare('SELECT id FROM users WHERE login_id = ?1').bind(loginId).first();
+  if (exists) return json({ error: 'login_id_taken' }, 409, cors);
+  const now = Date.now();
+  const id = randomId();
+  await env.DB.prepare('INSERT INTO users (id, login_id, display_name, role, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)')
+    .bind(id, loginId, displayName, role, await hashPassword(body.password, iterationsFor(env)), now).run();
+  return json({ user: publicUser(await env.DB.prepare('SELECT * FROM users WHERE id = ?1').bind(id).first()) }, 200, cors);
+}
+
+async function adminCount(db, exceptId) {
+  const r = await db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0 AND id <> ?1").bind(exceptId).first();
+  return r ? r.n : 0;
+}
+
+async function updateUser(request, env, cors) {
+  const { user, res } = await requireUser(request, env, cors, ['admin']);
+  if (res) return res;
+  const body = await readJson(request);
+  const row = body && typeof body.id === 'string' ? await env.DB.prepare('SELECT * FROM users WHERE id = ?1').bind(body.id).first() : null;
+  if (!row) return json({ error: 'not_found' }, 404, cors);
+  const next = { display_name: row.display_name, role: row.role, disabled: row.disabled, password_hash: row.password_hash };
+  if (body.displayName !== undefined) {
+    const n = cleanName(body.displayName);
+    if (!n) return json({ error: 'invalid_input' }, 400, cors);
+    next.display_name = n;
+  }
+  if (body.role !== undefined) {
+    if (body.role !== 'admin' && body.role !== 'staff') return json({ error: 'invalid_input' }, 400, cors);
+    next.role = body.role;
+  }
+  if (body.disabled !== undefined) next.disabled = body.disabled ? 1 : 0;
+  if (body.password !== undefined) {
+    if (!validPassword(body.password)) return json({ error: 'invalid_input' }, 400, cors);
+    next.password_hash = await hashPassword(body.password, iterationsFor(env));
+  }
+  // 管理者がいなくならないようにする
+  const losesAdmin = row.role === 'admin' && (next.role !== 'admin' || next.disabled);
+  if (losesAdmin && (await adminCount(env.DB, row.id)) === 0) return json({ error: 'last_admin' }, 409, cors);
+  const stmts = [
+    env.DB.prepare('UPDATE users SET display_name = ?1, role = ?2, disabled = ?3, password_hash = ?4, updated_at = ?5 WHERE id = ?6')
+      .bind(next.display_name, next.role, next.disabled, next.password_hash, Date.now(), row.id),
+  ];
+  // 使えなくした・パスワードを変えたときは、その人のログインを切る（自分の今の端末は残す）
+  if (next.disabled || body.password !== undefined) {
+    stmts.push(env.DB.prepare('DELETE FROM sessions WHERE user_id = ?1 AND token_hash <> ?2').bind(row.id, user.tokenHash));
+  }
+  await env.DB.batch(stmts);
+  return json({ user: publicUser(await env.DB.prepare('SELECT * FROM users WHERE id = ?1').bind(row.id).first()) }, 200, cors);
+}
+
+async function deleteUser(request, env, cors) {
+  const { user, res } = await requireUser(request, env, cors, ['admin']);
+  if (res) return res;
+  const body = await readJson(request);
+  const row = body && typeof body.id === 'string' ? await env.DB.prepare('SELECT * FROM users WHERE id = ?1').bind(body.id).first() : null;
+  if (!row) return json({ error: 'not_found' }, 404, cors);
+  if (row.id === user.id) return json({ error: 'cannot_delete_self' }, 409, cors);
+  if (row.role === 'admin' && (await adminCount(env.DB, row.id)) === 0) return json({ error: 'last_admin' }, 409, cors);
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM sessions WHERE user_id = ?1').bind(row.id),
+    env.DB.prepare('DELETE FROM users WHERE id = ?1').bind(row.id),
+  ]);
+  return json({ ok: true }, 200, cors);
+}
+
+// ---- 同期 ----
+
+function validId(v) {
+  return typeof v === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(v);
+}
+
+/**
+ * 送られてきた変更を、決まった形に整える（形の違うものは捨てる）。
+ * 戻り値 { games, events, team, rejected }
+ */
+export function cleanPush(push) {
+  const out = { games: [], events: [], team: null, rejected: 0 };
+  if (!push || typeof push !== 'object') return out;
+  const num = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.round(Number(v)) : null);
+  for (const g of Array.isArray(push.games) ? push.games.slice(0, MAX_PUSH) : []) {
+    const updatedAt = num(g && g.updatedAt);
+    const data = g && typeof g.data === 'string' ? g.data : '{}';
+    if (!g || !validId(g.id) || !updatedAt || data.length > MAX_GAME_BYTES) {
+      out.rejected += 1;
+      continue;
+    }
+    out.games.push({ id: g.id, data: g.deleted ? '{}' : data, updatedAt, deleted: g.deleted ? 1 : 0 });
+  }
+  for (const e of Array.isArray(push.events) ? push.events.slice(0, MAX_PUSH) : []) {
+    const updatedAt = num(e && e.updatedAt);
+    const data = e && typeof e.data === 'string' ? e.data : '{}';
+    if (!e || !validId(e.id) || !validId(e.gameId) || !updatedAt || data.length > MAX_EVENT_BYTES) {
+      out.rejected += 1;
+      continue;
+    }
+    out.events.push({ id: e.id, gameId: e.gameId, data: e.deleted ? '{}' : data, updatedAt, deleted: e.deleted ? 1 : 0 });
+  }
+  const t = push.team;
+  if (t && typeof t.data === 'string' && t.data.length <= MAX_TEAM_BYTES && num(t.updatedAt)) out.team = { data: t.data, updatedAt: num(t.updatedAt) };
+  return out;
+}
+
+const REV = "(SELECT value FROM meta WHERE key = 'rev')";
+
+/**
+ * 変更をまとめて保存する（1つのトランザクション）。
+ * 行ごとに通し番号（今の rev ＋ 何番目か）を付け、最後に rev を進める。
+ * すでにある行は、端末で変えた時刻（updatedAt）が新しいときだけ置き換える。
+ */
+export function pushStatements(db, clean, userId) {
+  const stmts = [];
+  let offset = 0;
+  if (clean.games.length) {
+    stmts.push(db.prepare(
+      `INSERT INTO games (id, data, updated_at, rev, updated_by, deleted)
+       SELECT json_extract(j.value, '$.id'), json_extract(j.value, '$.data'), json_extract(j.value, '$.updatedAt'),
+              ${REV} + ?2 + j.key + 1, ?3, json_extract(j.value, '$.deleted')
+       FROM json_each(?1) AS j WHERE true
+       ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at, rev = excluded.rev,
+         updated_by = excluded.updated_by, deleted = excluded.deleted
+       WHERE excluded.updated_at > games.updated_at`,
+    ).bind(JSON.stringify(clean.games), offset, userId));
+    offset += clean.games.length;
+  }
+  if (clean.events.length) {
+    stmts.push(db.prepare(
+      `INSERT INTO events (id, game_id, data, updated_at, rev, deleted)
+       SELECT json_extract(j.value, '$.id'), json_extract(j.value, '$.gameId'), json_extract(j.value, '$.data'),
+              json_extract(j.value, '$.updatedAt'), ${REV} + ?2 + j.key + 1, json_extract(j.value, '$.deleted')
+       FROM json_each(?1) AS j WHERE true
+       ON CONFLICT(id) DO UPDATE SET game_id = excluded.game_id, data = excluded.data, updated_at = excluded.updated_at,
+         rev = excluded.rev, deleted = excluded.deleted
+       WHERE excluded.updated_at > events.updated_at`,
+    ).bind(JSON.stringify(clean.events), offset));
+    offset += clean.events.length;
+  }
+  if (clean.team) {
+    stmts.push(db.prepare(
+      `INSERT INTO team (key, data, updated_at, rev) VALUES ('settings', ?1, ?2, ${REV} + ?3 + 1)
+       ON CONFLICT(key) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at, rev = excluded.rev
+       WHERE excluded.updated_at > team.updated_at`,
+    ).bind(clean.team.data, clean.team.updatedAt, offset));
+    offset += 1;
+  }
+  if (offset) stmts.push(db.prepare("UPDATE meta SET value = value + ?1 WHERE key = 'rev'").bind(offset));
+  return stmts;
+}
+
+export function pullStatement(db, cursor, limit) {
+  return db.prepare(
+    `SELECT 'g' AS t, id, NULL AS game_id, data, deleted, rev FROM games WHERE rev > ?1
+     UNION ALL SELECT 'e' AS t, id, game_id, data, deleted, rev FROM events WHERE rev > ?1
+     UNION ALL SELECT 's' AS t, key AS id, NULL AS game_id, data, 0 AS deleted, rev FROM team WHERE rev > ?1
+     ORDER BY rev LIMIT ?2`,
+  ).bind(cursor, limit);
+}
+
+async function sync(request, env, cors) {
+  const { user, res } = await requireUser(request, env, cors, ['admin', 'staff']);
+  if (res) return res;
+  const body = await readJson(request);
+  if (!body) return json({ error: 'bad_request' }, 400, cors);
+  const cursor = Number.isInteger(body.cursor) && body.cursor >= 0 ? body.cursor : 0;
+  const limit = Math.min(MAX_PULL_LIMIT, Number.isInteger(body.limit) && body.limit > 0 ? body.limit : DEFAULT_PULL_LIMIT);
+  const clean = cleanPush(body.push);
+  const stmts = pushStatements(env.DB, clean, user.id);
+  if (stmts.length) await env.DB.batch(stmts);
+  const { results } = await pullStatement(env.DB, cursor, limit).all();
+  const items = results.map((r) => {
+    const item = { t: r.t, id: r.id, data: r.data, deleted: !!r.deleted, rev: r.rev };
+    if (r.t === 'e') item.gameId = r.game_id;
+    return item;
+  });
+  return json({
+    cursor: items.length ? items[items.length - 1].rev : cursor,
+    items,
+    more: items.length === limit,
+    applied: { games: clean.games.length, events: clean.events.length, team: clean.team ? 1 : 0, rejected: clean.rejected },
+  }, 200, cors);
+}
+
+// ===== 入口：/basket/ で始まる道（AI・ログイン・同期）を受ける =====
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === '/basket/insight') return handleInsight(request, env);
+    if (url.pathname.startsWith('/basket/')) return handleBasket(request, env);
     return new Response('Not found', { status: 404 });
   },
 };

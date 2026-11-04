@@ -3,7 +3,7 @@
 //
 //   ルート       POST /basket/insight（ブラウザからの OPTIONS も受ける）
 //                本文の kind で分ける：quarter_insight（AI特筆データ）／advice（対処の例を聞く）／game_report（AIふりかえり）
-//   認証         ヘッダー X-Staff-Pass ＝ シークレット STAFF_PASS（違えば 401）
+//   認証         ヘッダー X-Staff-Pass ＝ シークレット STAFF_PASS、またはスタッフのログイン（Authorization: Bearer。違えば 401）
 //   CORS         既定は https://goldfish0824-web.github.io のみ。変数 ALLOWED_ORIGINS（カンマ区切り）で変更
 //   モデル       変数 MODEL（既定 claude-haiku-5-5。品質を上げたいときは claude-sonnet-5-5）
 //                対処の例だけ別のモデルにするときは変数 ADVICE_MODEL
@@ -13,6 +13,10 @@
 //                対処の例   {"options":[{"label":"…","detail":"…"}],"related":["press-221"]}
 //                ふりかえり {"summary":"…","good":[…],"issues":[…],"practice":[…],"watch":[…]}
 //                AI の出力を読めなければ 502
+
+import { safeEqual, isStaffRequest } from './auth.js';
+
+export { safeEqual };
 
 export const SYSTEM_PROMPT = `あなたは高校女子バスケットボール部のアナリスト補助です。
 クォーター終了時またはハーフタイムに、ベンチのスタッフがコーチへ伝える「特筆すべきデータ」を選びます。
@@ -198,27 +202,18 @@ export function corsHeaders(origin, env) {
   if (!origin || !allowedOrigins(env).includes(origin)) return {};
   return {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Staff-Pass',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Staff-Pass, Authorization',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
 }
 
-function json(body, status, headers) {
+export function json(body, status, headers) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers },
   });
-}
-
-/** 長さに関係なく同じ時間で比べる（パスコードの照合） */
-export function safeEqual(a, b) {
-  const x = new TextEncoder().encode(String(a));
-  const y = new TextEncoder().encode(String(b));
-  let diff = x.length ^ y.length;
-  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] || 0) ^ (y[i] || 0);
-  return diff === 0;
 }
 
 /** 候補を決まった項目だけにする（名前など想定外の項目は送らない） */
@@ -517,8 +512,7 @@ export async function handleInsight(request, env = {}, opts = {}) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, cors);
 
-  const pass = request.headers.get('X-Staff-Pass') || '';
-  if (!env.STAFF_PASS || !safeEqual(pass, env.STAFF_PASS)) return json({ error: 'unauthorized' }, 401, cors);
+  if (!(await isStaffRequest(request, env))) return json({ error: 'unauthorized' }, 401, cors);
 
   let payload;
   try {

@@ -91,7 +91,7 @@ test('パターンのある場面：図の一覧はすべてのパターンの�
   assert.equal(itemDiagrams(byId('sp-last')).length, 0);
 });
 
-test('文言：「TO」と略さない、「〜すべき」と書かない', () => {
+test('文言：「TO」と略さない、「〜すべき」と書かない、判断は「顧問」', () => {
   for (const it of QA_ITEMS) {
     const texts = [
       it.title, it.situation, ...it.points, ...(it.watch || []), ...itemDiagrams(it).map((d) => d.caption),
@@ -100,6 +100,7 @@ test('文言：「TO」と略さない、「〜すべき」と書かない', () 
     for (const t of texts) {
       assert.ok(!/TO/.test(t), `${it.id}: ${t}`);
       assert.ok(!/すべき/.test(t), `${it.id}: ${t}`);
+      assert.ok(!/主顧問/.test(t), `${it.id}: 判断する人は「顧問」と書く（${t}）`);
     }
   }
 });

@@ -132,7 +132,7 @@ export async function renderQuarter(root, params, app) {
   }, questionInput, askBtn);
   const adviceCard = h('section', { class: 'card q-advice' },
     h('div', { class: 'card-head' }, h('h2', null, '対処の例（AIに聞く）')),
-    h('p', { class: 'advice-note' }, 'AIが出す「対処の例」です。決めるのはコーチです。特筆データの各行の「対処の例を聞く」か、下の欄から聞けます。'),
+    h('p', { class: 'advice-note' }, 'AIが出す「対処の例」です。決めるのはコーチです。特筆データの各行や、候補の一覧（すべての候補）の「対処の例を聞く」か、下の欄から聞けます。'),
     askForm,
     adviceStatus,
     adviceList);
@@ -144,7 +144,7 @@ export async function renderQuarter(root, params, app) {
   function adviceView(r) {
     return h('div', { class: 'advice-record' },
       h('p', { class: 'advice-q' },
-        h('span', { class: ['advice-tag', r.insightLine ? 'insight' : 'question'] }, r.insightLine ? '特筆データ' : '質問'),
+        h('span', { class: ['advice-tag', r.insightLine ? 'insight' : 'question'] }, r.insightLine ? (r.fromCandidate ? '候補' : '特筆データ') : '質問'),
         r.insightLine || r.question),
       r.insightLine && r.question ? h('p', { class: 'advice-q2' }, r.question) : null,
       h('p', { class: 'insight-meta' }, insightMetaText(r), r.source === 'ai' ? h('span', { class: 'src ai' }, 'AIの対処の例') : null),
@@ -200,7 +200,7 @@ export async function renderQuarter(root, params, app) {
     const record = {
       id: uuid(), quarter: q, inProgress, createdAt: Date.now(),
       source: options.length ? 'ai' : 'none', note,
-      insightLine: item ? item.line : '', candidateId: item ? item.candidateId : null,
+      insightLine: item ? item.line : '', candidateId: item ? item.candidateId : null, fromCandidate: !!(item && item.fromCandidate),
       question: payload.question, options, related: mergeRelated(aiRelated, local, QA_IDS),
     };
     game.advice = [...(game.advice || []), record];
@@ -259,11 +259,18 @@ export async function renderQuarter(root, params, app) {
   drawHistory();
   drawAdvice();
 
+  // 候補はすべて「対処の例を聞く」ができる（AI が選んだ3つ以外も）
   const candidateList = h('details', { class: 'cand-list' },
-    h('summary', null, `候補 ${candidates.length}件（端末で計算した数字。AIはこの中から選びます）`),
-    h('ol', null, candidates.map((c) => h('li', null,
-      h('span', { class: 'cand-line' }, localLine(c)),
-      h('span', { class: 'cand-meta' }, `${evidenceText(c, names)}　${CATEGORY_LABEL[c.category]}　点数 ${c.localScore.toFixed(2)}`)))));
+    h('summary', null, `候補 ${candidates.length}件（端末で計算した数字。AIはこの中から選びます。各行から対処の例を聞けます）`),
+    h('ol', null, candidates.map((c) => h('li', { class: 'cand-row' },
+      // ボタンは右に寄せる（先に置いて回り込ませる）
+      h('button', {
+        class: 'btn small cand-ask', type: 'button', 'aria-label': `対処の例を聞く：${localLine(c)}`,
+        onclick: () => ask({ item: { candidateId: c.id, line: localLine(c), candidate: c, fromCandidate: true } }),
+      }, icon('sparkle'), '対処の例を聞く'),
+      h('div', { class: 'cand-text' },
+        h('span', { class: 'cand-line' }, localLine(c)),
+        h('span', { class: 'cand-meta' }, `${evidenceText(c, names)}　${CATEGORY_LABEL[c.category]}　点数 ${c.localScore.toFixed(2)}`))))));
 
   root.append(
     h('header', { class: 'page-head' },

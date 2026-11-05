@@ -98,7 +98,10 @@ export async function renderQaList(root, params, app) {
     h('header', { class: 'page-head' },
       h('a', { class: 'btn', href: '#/' }, icon('home'), 'ホーム'),
       h('div', { class: 'head-title' }, h('h1', null, '場面別Q&A'), h('span', { class: 'muted' }, 'よくある場面と対処の例')),
-      h('div', { class: 'head-actions' })),
+      h('div', { class: 'head-actions' },
+        // 印刷用：できあがった PDF（A4・両面）と、印刷用ページ
+        h('a', { class: 'btn', href: './print/qa.pdf', target: '_blank', rel: 'noopener' }, icon('download'), '印刷用PDF'),
+        h('a', { class: 'btn', href: '#/qa/print' }, icon('book'), '印刷用ページ'))),
     h('div', { class: 'page wide' },
       h('p', { class: 'qa-note' }, NOTE),
       h('div', { class: 'qa-toolbar' }, search, countEl),

@@ -1,6 +1,6 @@
 // Service Worker：アプリ本体をキャッシュして、電波がなくても開けるようにする。
 // ファイルを追加・変更したら CACHE_VERSION を上げる（tests/sw.test.js が一覧の漏れを確認する）。
-const CACHE_VERSION = 'v20';
+const CACHE_VERSION = 'v22';
 const CACHE_NAME = `basket-analyst-${CACHE_VERSION}`;
 
 const ASSETS = [
@@ -21,6 +21,7 @@ const ASSETS = [
   './js/report.js',
   './js/model.js',
   './js/qa.js',
+  './js/qa-print.js',
   './js/qa-data.js',
   './js/review.js',
   './js/stats.js',
@@ -33,6 +34,7 @@ const ASSETS = [
   './js/views/home.js',
   './js/views/insight-view.js',
   './js/views/qa.js',
+  './js/views/qa-print.js',
   './js/views/quarter.js',
   './js/views/record.js',
   './js/views/review.js',
@@ -73,14 +75,19 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/** アプリの画面として開くパス（/ や index.html）。拡張子のあるファイル（.pdf など）は含めない */
+function isAppPage(pathname) {
+  return !/\.[a-z0-9]+$/i.test(pathname) || /\.html?$/i.test(pathname);
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // AI（Worker）などほかのサイトへの通信はそのまま
 
-  // 画面の読み込みは index.html を返す（ハッシュで画面を切り替えるため）
-  if (req.mode === 'navigate') {
+  // 画面の読み込みは index.html を返す（ハッシュで画面を切り替えるため）。印刷用 PDF などのファイルはそのまま開く
+  if (req.mode === 'navigate' && isAppPage(url.pathname)) {
     event.respondWith(
       caches.match('./index.html').then((cached) => cached || fetch(req)),
     );

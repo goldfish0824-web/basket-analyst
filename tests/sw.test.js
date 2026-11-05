@@ -54,3 +54,14 @@ test('リポジトリに API キーや Worker の URL の実値を書いてい�
     assert.ok(!/https:\/\/[^'"\s]*workers\.dev/.test(src), `${f} に Worker の URL`);
   }
 });
+
+test('印刷用 PDF を開いたときは、アプリの画面（index.html）に置き換えない', () => {
+  const src = readFileSync(join(root, 'sw.js'), 'utf8');
+  const m = src.match(/function isAppPage\(pathname\) \{([\s\S]*?)\n\}/);
+  assert.ok(m, 'sw.js に isAppPage がない');
+  const isAppPage = new Function('pathname', m[1]);
+  assert.equal(isAppPage('/basket-analyst/'), true);
+  assert.equal(isAppPage('/basket-analyst/index.html'), true);
+  assert.equal(isAppPage('/basket-analyst/print/qa.pdf'), false);
+  assert.match(src, /req\.mode === 'navigate' && isAppPage\(url\.pathname\)/);
+});

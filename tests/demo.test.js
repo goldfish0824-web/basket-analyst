@@ -86,3 +86,20 @@ test('ゾーン内の点を作る', () => {
     }
   }
 });
+
+test('デモ：先発と交代、試合時計で、出場時間と +/- が出る', async () => {
+  const { playingTime, onCourt } = await import('../js/lineup.js');
+  const { events } = demo();
+  assert.equal(events[0].type, 'lineup');
+  assert.ok(events.some((e) => e.type === 'sub'));
+  // 記録に出てくる自チームの選手は、そのときコートにいる
+  for (const e of events) {
+    if (e.team !== 'us' || e.player == null || e.type === 'sub' || e.type === 'lineup') continue;
+    const before = events.filter((x) => x.seq < e.seq);
+    assert.ok(onCourt(before).includes(e.player), `seq ${e.seq} #${e.player}`);
+  }
+  const pt = playingTime(events);
+  const total = Object.values(pt.seconds).reduce((a, b) => a + b, 0);
+  assert.equal(Math.round(total), 4 * 600 * 5, '4クォーター×10分×5人');
+  for (const e of events) if (e.type !== 'lineup') assert.ok(e.clock != null && e.clock >= 0 && e.clock <= 600, `seq ${e.seq}`);
+});

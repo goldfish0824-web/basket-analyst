@@ -5,6 +5,7 @@
 //   - 3Q の相手 2-2-1プレスで自チームのターンオーバーが続く
 //   - 自#5 のファウルが前半3つ、3Qで4つ。相手#10 は4Qに5つ目
 //   - 相手のオフェンスリバウンドが多い、自チームのフリースローが入らない
+//   - 先発（#4〜#8）と交代、試合時計の残り時間（出場時間・+/- の確認用）
 import { COURT_W, zoneOf, zonePolygons } from './court.js';
 import { makeEvent, newGame, uuid } from './model.js';
 
@@ -233,10 +234,30 @@ export function generateDemo(opts = {}) {
   const events = [];
   let seq = 0;
   let ts = start;
-  const push = (draft, quarter) => {
+  const push = (draft, quarter, stepMs) => {
     seq += 1;
-    ts += 15000 + Math.floor(rand() * 25000);
+    ts += stepMs ?? 15000 + Math.floor(rand() * 25000);
     events.push(makeEvent(draft, { gameId: game.id, seq, quarter, live: { ...live }, ts, id: newId() }));
+  };
+
+  // 先発。記録に出てくる自チームの選手がベンチにいたら、その前に交代を入れる
+  // （出す選手は、このクォーターでいちばん後まで記録に出てこない選手）
+  let court = DEMO_ROSTER.slice(0, 5).map((p) => p.number);
+  ts = start - 120000;
+  push({ type: 'lineup', team: U, players: court }, 1, 0);
+  const usPlayerOf = (it) => {
+    if (it[0] === 'ast' || it[0] === 'stl' || it[0] === 'blk') return it[1];
+    return it[1] === U && it[2] != null && ['fg', 'ft', 'or', 'dr', 'to', 'foul'].includes(it[0]) ? it[2] : null;
+  };
+  const ensureOnCourt = (player, items, from, quarter) => {
+    if (player == null || court.includes(player)) return;
+    const nextUse = (n) => {
+      for (let k = from; k < items.length; k++) if (usPlayerOf(items[k]) === n) return k;
+      return Infinity;
+    };
+    const out = [...court].sort((a, b) => nextUse(b) - nextUse(a))[0];
+    push({ type: 'sub', team: U, player, out }, quarter, 3000);
+    court = court.map((n) => (n === out ? player : n));
   };
 
   SCRIPT.forEach((items, qi) => {
@@ -244,8 +265,9 @@ export function generateDemo(opts = {}) {
     // クォーター間の休み（ハーフタイムは長め）
     ts = start + qi * 17 * 60000 + (quarter >= 3 ? 10 * 60000 : 0);
     push({ type: 'q_start' }, quarter);
-    for (const it of items) {
+    for (const [idx, it] of items.entries()) {
       const [kind] = it;
+      ensureOnCourt(usPlayerOf(it), items, idx, quarter);
       switch (kind) {
         case 'df':
           if (it[1] === U) live.usDF = it[2];
@@ -289,6 +311,19 @@ export function generateDemo(opts = {}) {
     }
     push({ type: 'q_end' }, quarter);
   });
+
+  // 試合時計：各クォーター 10:00 から 0:00 まで、記録の順に均等に減らす
+  for (let q = 1; q <= SCRIPT.length; q++) {
+    const list = events.filter((e) => e.quarter === q && e.type !== 'lineup');
+    const inner = list.filter((e) => e.type !== 'q_start' && e.type !== 'q_end');
+    for (const e of list) {
+      if (e.type === 'q_start') e.clock = 600;
+      else if (e.type === 'q_end') e.clock = 0;
+    }
+    inner.forEach((e, k) => {
+      e.clock = Math.round(600 * (1 - (k + 1) / (inner.length + 1)) * 10) / 10;
+    });
+  }
 
   game.live = { ...live };
   return { game, events };

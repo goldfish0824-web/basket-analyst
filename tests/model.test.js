@@ -34,8 +34,10 @@ test('makeEvent は SPEC 3-5 の形を作る', () => {
   );
   assert.deepEqual(e, {
     id: 'e57', gameId: 'g1', seq: 57, quarter: 2, team: 'us', player: '7', type: 'fg', made: true, points: 2,
-    x: 10.23, y: 3.1, zone: 'ミドル右', tags: ['ドライブ'], defense: '2-2-1プレス', ts: 1762150000000,
+    x: 10.23, y: 3.1, zone: 'ミドル右', tags: ['ドライブ'], defense: '2-2-1プレス', ts: 1762150000000, clock: null,
   });
+  // 試合時計の残り秒（記録画面から渡す）
+  assert.equal(makeEvent({ type: 'foul', team: 'us', player: '5' }, { gameId: 'g1', seq: 3, quarter: 2, live, ts: 1, clock: 332.4 }).clock, 332.4);
   const f = makeEvent({ type: 'foul', team: 'opp', player: null }, { gameId: 'g1', seq: 1, quarter: 1, live, ts: 1 });
   assert.equal(f.player, null);
   assert.equal(f.made, null);

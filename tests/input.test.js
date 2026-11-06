@@ -260,3 +260,67 @@ test('案内文は操作の案内だけ（「すべき」を含まない）', ()
     assert.ok(!/TO/.test(h));
   }
 });
+
+test('続きの1タップ：自チームのシュート成功の直後にアシスト（もう一度で取り消し、別の選手で付け替え）', () => {
+  const base = run([
+    { type: 'court', x: 7.5, y: 3 },
+    { type: 'player', team: 'us', player: '7' },
+    { type: 'fgResult', made: true },
+  ]);
+  assert.equal(base.state.sheet, 'tags');
+  assert.deepEqual(base.state.after, { kind: 'fg', team: 'us', player: '7', made: true });
+  let n = 100;
+  const ctx = { newId: () => `a${++n}` };
+  let r = step(base.state, { type: 'assist', player: '4' }, ctx);
+  assert.deepEqual(r.ops, [{ op: 'add', draft: { id: 'a101', team: 'us', player: '4', type: 'ast', tags: [] } }]);
+  assert.equal(r.state.sheet, 'tags', '種類タグはそのまま選べる');
+  r = step(r.state, { type: 'assist', player: '5' }, ctx);
+  assert.deepEqual(r.ops.map((o) => o.op), ['remove', 'add']);
+  assert.equal(r.ops[0].id, 'a101');
+  r = step(r.state, { type: 'assist', player: '5' }, ctx);
+  assert.deepEqual(r.ops, [{ op: 'remove', id: 'a102' }]);
+  assert.equal(r.state.assistPlayer, null);
+  assert.match(step(base.state, { type: 'assist', player: '7' }, ctx).error, /シュートした選手/);
+  // 失敗・相手のシュートでは何もしない
+  const miss = run([{ type: 'court', x: 7.5, y: 3 }, { type: 'player', team: 'us', player: '7' }, { type: 'fgResult', made: false }]);
+  assert.deepEqual(step(miss.state, { type: 'assist', player: '4' }, ctx).ops, []);
+  const opp = run([{ type: 'court', x: 7.5, y: 3 }, { type: 'player', team: 'opp', player: '9' }, { type: 'fgResult', made: true }]);
+  assert.deepEqual(step(opp.state, { type: 'assist', player: '4' }, ctx).ops, []);
+});
+
+test('続きの1タップ：シュート失敗の直後にリバウンド（同じチームは OR、相手は DR）', () => {
+  const miss = run([{ type: 'court', x: 7.5, y: 3 }, { type: 'player', team: 'us', player: '7' }, { type: 'fgResult', made: false }]);
+  const ctx = { newId: () => 'r1' };
+  let r = step(miss.state, { type: 'rebound', team: 'us', player: '8' }, ctx);
+  assert.deepEqual(r.ops, [{ op: 'add', draft: { id: 'r1', team: 'us', player: '8', type: 'oreb', tags: [] } }]);
+  assert.equal(r.state.sheet, null, 'リバウンドを記録したら閉じる');
+  r = step(miss.state, { type: 'rebound', team: 'opp', player: null }, ctx);
+  assert.equal(r.ops[0].draft.type, 'dreb');
+  assert.equal(r.ops[0].draft.team, 'opp');
+  assert.equal(r.ops[0].draft.player, null);
+  const oppMiss = run([{ type: 'court', x: 7.5, y: 3 }, { type: 'player', team: 'opp', player: '9' }, { type: 'fgResult', made: false }]);
+  assert.equal(step(oppMiss.state, { type: 'rebound', team: 'us', player: '4' }, ctx).ops[0].draft.type, 'dreb');
+  // 5ファウルの選手は選べない
+  assert.match(step(miss.state, { type: 'rebound', team: 'us', player: '5' }, { ...ctx, isDisabled: (t, p) => p === '5' }).error, /5ファウル/);
+  // 成功のあとはリバウンドなし
+  const made = run([{ type: 'court', x: 7.5, y: 3 }, { type: 'player', team: 'us', player: '7' }, { type: 'fgResult', made: true }]);
+  assert.deepEqual(step(made.state, { type: 'rebound', team: 'us', player: '8' }, ctx).ops, []);
+});
+
+test('続きの1タップ：フリースローの直後に同じ選手の次の1本、外れたらリバウンド', () => {
+  const ft = run([{ type: 'player', team: 'us', player: '7' }, { type: 'play', action: 'ft_made' }]);
+  assert.equal(ft.state.sheet, 'ft');
+  assert.deepEqual(ft.state.after, { kind: 'ft', team: 'us', player: '7', made: true });
+  const ctx = { newId: () => 'f2' };
+  const r = step(ft.state, { type: 'ftAgain', made: false }, ctx);
+  assert.deepEqual(r.ops, [{ op: 'add', draft: { id: 'f2', team: 'us', player: '7', type: 'ft', made: false, points: 1, tags: [] } }]);
+  assert.equal(r.state.sheet, 'ft');
+  assert.equal(r.state.after.made, false);
+  const reb = step(r.state, { type: 'rebound', team: 'opp', player: '4' }, { newId: () => 'r9' });
+  assert.equal(reb.ops[0].draft.type, 'dreb');
+  // ほかの操作を始めたら閉じる
+  const other = step(ft.state, { type: 'player', team: 'opp', player: '4' }, ctx);
+  assert.equal(other.state.sheet, null);
+  assert.equal(other.state.after, null);
+  assert.deepEqual(other.state.sel, { team: 'opp', player: '4' });
+});

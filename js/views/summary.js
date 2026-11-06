@@ -8,6 +8,7 @@ import {
   pctText, decimalText,
 } from '../stats.js';
 import { createCourt, drawShots, drawZoneStats, drawZoneLines } from '../court-svg.js';
+import { playingTime, minutesText } from '../lineup.js';
 import { exportGame } from './shared.js';
 
 const TABS = [
@@ -125,16 +126,26 @@ const ma = (m, a) => `${m}-${a}`;
 
 export function boxSection(game, events) {
   const us = teamBox(events, 'us', game.roster);
+  // 出場メンバーと交代を記録した試合は、出場時間（時計を使ったとき）と +/- を出す
+  const pt = playingTime(events, 'us');
+  const showTime = pt.tracked && pt.seconds != null;
+  const showPm = pt.tracked;
   const usHead = [
-    { label: '背番号' }, { label: '呼び名', cls: 'name' }, { label: '得点' }, { label: 'FG' }, { label: 'FG%' },
+    { label: '背番号' }, { label: '呼び名', cls: 'name' },
+    ...(showTime ? [{ label: '出場時間' }] : []), ...(showPm ? [{ label: '+/-' }] : []),
+    { label: '得点' }, { label: 'FG' }, { label: 'FG%' },
     { label: '3P' }, { label: '3P%' }, { label: 'FT' }, { label: 'FT%' }, { label: 'OR' }, { label: 'DR' },
     { label: 'アシスト' }, { label: 'スティール' }, { label: 'ブロック' }, { label: 'ターンオーバー' }, { label: 'ファウル' },
   ];
-  const usLine = (label, name, r) => [
-    label, name, r.pts, ma(r.fgm, r.fga), pctText(r.fgm, r.fga), ma(r.tpm, r.tpa), pctText(r.tpm, r.tpa),
+  const pmText = (v) => (v == null ? '—' : v > 0 ? `+${v}` : String(v));
+  const usLine = (label, name, r, number) => [
+    label, name,
+    ...(showTime ? [number == null ? '' : pt.seconds[number] != null ? minutesText(pt.seconds[number]) : '0:00'] : []),
+    ...(showPm ? [number == null ? '' : pmText(pt.plusMinus[number] ?? 0)] : []),
+    r.pts, ma(r.fgm, r.fga), pctText(r.fgm, r.fga), ma(r.tpm, r.tpa), pctText(r.tpm, r.tpa),
     ma(r.ftm, r.fta), pctText(r.ftm, r.fta), r.oreb, r.dreb, r.ast, r.stl, r.blk, r.to, r.pf,
   ];
-  const usRows = us.rows.map((r) => ({ cells: usLine(`#${r.number}`, r.name, r), cls: r.pf >= 5 ? 'out' : r.pf === 4 ? 'pf4' : r.pf === 3 ? 'pf3' : '' }));
+  const usRows = us.rows.map((r) => ({ cells: usLine(`#${r.number}`, r.name, r, r.number), cls: r.pf >= 5 ? 'out' : r.pf === 4 ? 'pf4' : r.pf === 3 ? 'pf3' : '' }));
   const usFoot = [];
   if (us.other) usFoot.push({ cells: usLine('チーム', '補正・チームリバウンド等', us.other), cls: 'sub' });
   usFoot.push({ cells: usLine('合計', '', us.total), cls: 'total' });
@@ -156,7 +167,8 @@ export function boxSection(game, events) {
     h('section', { class: 'card' },
       h('h2', null, 'ボックススコア（自チーム）'),
       table(usHead, usRows, { className: 'box us', foot: usFoot }),
-      h('p', { class: 'legend' }, h('span', { class: 'swatch pf3' }), 'ファウル3　', h('span', { class: 'swatch pf4' }), 'ファウル4　', h('span', { class: 'swatch out' }), 'ファウル5')),
+      h('p', { class: 'legend' }, h('span', { class: 'swatch pf3' }), 'ファウル3　', h('span', { class: 'swatch pf4' }), 'ファウル4　', h('span', { class: 'swatch out' }), 'ファウル5'),
+      showPm ? h('p', { class: 'muted small' }, `${showTime ? '出場時間は試合時計の残り時間から数えています（時計を止め忘れた時間も入ります）。' : ''}+/- はその選手がコートにいる間の得点 − 失点です。`) : null),
     h('section', { class: 'card' },
       h('h2', null, '相手チーム'),
       table(oppHead, oppRows.length ? oppRows : [{ cells: ['記録なし', '', '', '', '', '', ''] }], { className: 'box opp', foot: oppFoot }),

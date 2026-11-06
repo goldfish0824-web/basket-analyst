@@ -5,7 +5,7 @@ export const TEAM_LABEL = { us: '自チーム', opp: '相手' };
 export const TEAM_SHORT = { us: '自', opp: '相手' };
 
 export const EVENT_TYPES = [
-  'fg', 'ft', 'oreb', 'dreb', 'to', 'ast', 'stl', 'blk', 'foul', 'timeout', 'adjust', 'q_start', 'q_end',
+  'fg', 'ft', 'oreb', 'dreb', 'to', 'ast', 'stl', 'blk', 'foul', 'timeout', 'adjust', 'q_start', 'q_end', 'sub', 'lineup',
 ];
 
 // 「TO」はターンオーバー／タイムアウトのどちらにも読めるので使わない（CLAUDE.md）
@@ -23,6 +23,8 @@ export const TYPE_LABEL = {
   adjust: '得点補正',
   q_start: 'クォーター開始',
   q_end: 'クォーター終了',
+  sub: '選手交代',
+  lineup: '出場メンバー',
 };
 
 export const DEFAULT_DEFENSES = [
@@ -138,6 +140,11 @@ export function makeEvent(draft, ctx) {
     // 得点補正は後から合わせる記録なので隊形は付けない
     defense: isAdjust ? null : defenseFor(type, team, ctx.live),
     ts: ctx.ts,
+    // 試合時計の残り秒（時計を使っていなければ null）
+    clock: draft.clock != null ? Number(draft.clock) : ctx.clock != null ? Number(ctx.clock) : null,
+    // 選手交代：出た選手（player は入った選手）／出場メンバー：コートの5人
+    ...(type === 'sub' ? { out: draft.out == null ? null : String(draft.out) } : {}),
+    ...(type === 'lineup' ? { players: (draft.players || []).map(String) } : {}),
   };
 }
 
@@ -173,6 +180,10 @@ export function describeEvent(e, zoneLabels) {
       return `${quarterLabel(e.quarter)} 開始`;
     case 'q_end':
       return `${quarterLabel(e.quarter)} 終了`;
+    case 'sub':
+      return `交代 ${TEAM_SHORT[e.team] || ''}#${e.out} → #${e.player}`;
+    case 'lineup':
+      return `出場メンバー ${TEAM_SHORT[e.team] || ''}${(e.players || []).map((n) => `#${n}`).join('・')}`;
     default:
       return `${who} ${TYPE_LABEL[e.type] || e.type}`;
   }

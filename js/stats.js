@@ -104,7 +104,7 @@ export function teamBox(events, team, players = []) {
   const total = emptyLine();
   for (const e of events) {
     if (e.team !== team) continue;
-    if (e.type === 'timeout' || e.type === 'q_start' || e.type === 'q_end') continue;
+    if (e.type === 'timeout' || e.type === 'q_start' || e.type === 'q_end' || e.type === 'sub' || e.type === 'lineup') continue;
     addToLine(total, e);
     if (e.player == null) {
       addToLine(other, e);

@@ -41,7 +41,7 @@ export async function renderRecord(root, params, app) {
   let lastAddedId = null;
   let lastMessage = ''; // 直前に記録した内容（右側の案内欄に出す）
   let lastSave = Promise.resolve();
-  let starters = null; // 試合開始前に選んでいる先発（背番号の配列）
+  const starters = { us: null, opp: null }; // 試合開始前に選んでいる先発（背番号の配列）
   const summaryHref = (q) => `#/game/${game.id}/quarter/${q}`;
 
   // ---- 保存 ----
@@ -99,7 +99,9 @@ export async function renderRecord(root, params, app) {
     newId: uuid,
     isDisabled: (team, player) => (fouls()[team][player] || 0) >= 5,
   };
-  const court5 = () => onCourt(events, 'us');
+  const courtOf = (team) => onCourt(events, team);
+  const court5 = () => courtOf('us');
+  const TEAM_TITLE = (team) => (team === 'us' ? '自チーム' : '相手');
 
   function dispatch(cmd) {
     const r = step(input, cmd, ctx);
@@ -318,11 +320,22 @@ export async function renderRecord(root, params, app) {
   // ---- 選手ボタン ----
   function oppNumberList() {
     const set = new Set(game.oppNumbers || []);
-    for (const e of events) if (e.team === 'opp' && e.player != null) set.add(e.player);
+    for (const e of events) {
+      if (e.team !== 'opp') continue;
+      if (e.player != null) set.add(e.player);
+      if (e.type === 'sub' && e.out != null) set.add(e.out);
+      if (e.type === 'lineup') for (const n of e.players || []) set.add(n);
+    }
     return sortNumbers([...set]);
   }
 
-  const nameOf = (number) => {
+  /** チームの選手（自チームは名簿の順と呼び名、相手は背番号だけ） */
+  const teamList = (team) => (team === 'us'
+    ? game.roster.map((p) => ({ number: String(p.number), name: p.name || '' }))
+    : oppNumberList().map((n) => ({ number: n, name: '' })));
+
+  const nameOf = (team, number) => {
+    if (team !== 'us') return '';
     const p = game.roster.find((x) => String(x.number) === String(number));
     return p ? p.name : '';
   };
@@ -337,6 +350,7 @@ export async function renderRecord(root, params, app) {
       type: 'button',
       'aria-disabled': out ? 'true' : null,
       'data-group': extra.group || null,
+      'data-team': extra.group ? team : null,
       'data-number': number == null ? null : number,
       onclick: () => dispatch({ type: 'player', team, player: number }),
       'aria-pressed': String(!!selected),
@@ -346,39 +360,44 @@ export async function renderRecord(root, params, app) {
     badge);
   }
 
-  function smallButton(label, onclick, cls = '') {
-    return h('button', { class: ['pl-btn us tool', cls], type: 'button', onclick }, h('span', { class: 'pl-tool' }, label));
+  function smallButton(team, label, onclick, cls = '') {
+    return h('button', { class: ['pl-btn tool', team, cls], type: 'button', onclick }, h('span', { class: 'pl-tool' }, label));
+  }
+
+  /** 1チーム分の選手ボタン（コートの5人を記録していれば、上の段にコート・下の段にベンチ） */
+  function sideBlock(team) {
+    const pf = fouls();
+    const on = courtOf(team);
+    const list = teamList(team);
+    const title = team === 'us' ? '自チーム' : `相手${game.opponent ? `（${game.opponent}）` : ''}`;
+    const subBtn = smallButton(team, '交代', () => openSubModal(team), 'sub-btn');
+    const addBtn = team === 'us' ? smallButton(team, '＋選手', addOurPlayer, 'add') : smallButton(team, '＋番号', () => addOppNumber(), 'add');
+    if (on) {
+      const bench = benchOf(list, on);
+      return [
+        h('div', { class: 'side-label' }, h('span', null, `${title}　上：コート／下：ベンチ`), h('span', { class: 'side-hint' }, 'ベンチ ⇄ コートへドラッグで交代')),
+        h('div', { class: 'oncourt' },
+          on.map((n) => playerButton(team, n, nameOf(team, n), pf, { group: 'court' })),
+          playerButton(team, null, '', pf)),
+        h('div', { class: 'bench' },
+          bench.map((n) => playerButton(team, n, nameOf(team, n), pf, { group: 'bench', cls: 'benched' })),
+          subBtn,
+          addBtn),
+      ];
+    }
+    return [
+      h('div', { class: 'side-label' }, h('span', null, title), h('span', { class: 'side-hint' }, '「交代」でコートの5人を選ぶと、出場時間を記録します')),
+      h('div', { class: team === 'us' ? 'roster-all' : 'opp-grid' },
+        list.map((p) => playerButton(team, p.number, p.name, pf)),
+        playerButton(team, null, '', pf),
+        subBtn,
+        addBtn),
+    ];
   }
 
   function renderPlayers() {
-    const pf = fouls();
-    const on = court5();
-    if (on) {
-      const bench = benchOf(game.roster, on);
-      replace(usSide,
-        h('div', { class: 'side-label' }, h('span', null, '自チーム　上：コート／下：ベンチ'), h('span', { class: 'side-hint' }, 'ベンチ ⇄ コートへドラッグで交代')),
-        h('div', { class: 'oncourt' },
-          on.map((n) => playerButton('us', n, nameOf(n), pf, { group: 'court' })),
-          playerButton('us', null, '', pf)),
-        h('div', { class: 'bench' },
-          bench.map((n) => playerButton('us', n, nameOf(n), pf, { group: 'bench', cls: 'benched' })),
-          smallButton('交代', openSubModal, 'sub-btn'),
-          smallButton('＋選手', addOurPlayer, 'add')));
-    } else {
-      replace(usSide,
-        h('div', { class: 'side-label' }, h('span', null, '自チーム'), h('span', { class: 'side-hint' }, '「交代」でコートの5人を選ぶと、出場時間を記録します')),
-        h('div', { class: 'roster-all' },
-          game.roster.map((p) => playerButton('us', String(p.number), p.name, pf)),
-          playerButton('us', null, '', pf),
-          smallButton('交代', openSubModal, 'sub-btn'),
-          smallButton('＋選手', addOurPlayer, 'add')));
-    }
-    replace(oppSide,
-      h('div', { class: 'side-label' }, h('span', null, `相手${game.opponent ? `（${game.opponent}）` : ''}`)),
-      h('div', { class: 'opp-grid' },
-        oppNumberList().map((n) => playerButton('opp', n, '', pf)),
-        h('button', { class: 'pl-btn opp add', type: 'button', onclick: addOppNumber }, h('span', { class: 'pl-tool' }, '＋番号')),
-        playerButton('opp', null, '', pf)));
+    replace(usSide, sideBlock('us'));
+    replace(oppSide, sideBlock('opp'));
     players.classList.toggle('waiting', !!(input.loc || input.action) && !input.sel);
   }
 
@@ -388,21 +407,21 @@ export async function renderRecord(root, params, app) {
   function dragTarget(x, y) {
     const el = document.elementFromPoint(x, y);
     const btn = el && el.closest ? el.closest('.pl-btn[data-group]') : null;
-    if (!btn || !drag || btn.dataset.group === drag.group) return null;
+    if (!btn || !drag || btn.dataset.team !== drag.team || btn.dataset.group === drag.group) return null;
     return btn;
   }
   function endDrag() {
     if (!drag) return;
     if (drag.ghost) drag.ghost.remove();
     drag.btn.classList.remove('dragging');
-    players.classList.remove('drag-on');
+    players.classList.remove('drag-on', 'drag-us', 'drag-opp');
     for (const b of players.querySelectorAll('.drop-hover')) b.classList.remove('drop-hover');
     drag = null;
   }
   players.addEventListener('pointerdown', (ev) => {
     const btn = ev.target.closest('.pl-btn[data-group]');
     if (!btn || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
-    drag = { btn, group: btn.dataset.group, number: btn.dataset.number, x: ev.clientX, y: ev.clientY, id: ev.pointerId, ghost: null };
+    drag = { btn, team: btn.dataset.team, group: btn.dataset.group, number: btn.dataset.number, x: ev.clientX, y: ev.clientY, id: ev.pointerId, ghost: null };
   });
   const onMove = (ev) => {
     if (!drag || ev.pointerId !== drag.id) return;
@@ -416,7 +435,7 @@ export async function renderRecord(root, params, app) {
       Object.assign(drag.ghost.style, { width: `${r.width}px`, height: `${r.height}px` });
       document.body.appendChild(drag.ghost);
       drag.btn.classList.add('dragging');
-      players.classList.add('drag-on');
+      players.classList.add('drag-on', `drag-${drag.team}`);
     }
     drag.ghost.style.transform = `translate(${ev.clientX - drag.ghost.offsetWidth / 2}px, ${ev.clientY - drag.ghost.offsetHeight / 2}px)`;
     const target = dragTarget(ev.clientX, ev.clientY);
@@ -427,14 +446,14 @@ export async function renderRecord(root, params, app) {
     if (!drag || ev.pointerId !== drag.id) return;
     const moved = !!drag.ghost;
     const target = moved ? dragTarget(ev.clientX, ev.clientY) : null;
-    const from = { group: drag.group, number: drag.number };
+    const from = { team: drag.team, group: drag.group, number: drag.number };
     endDrag();
     if (!moved) return;
     suppressClick = { x: ev.clientX, y: ev.clientY, until: Date.now() + 500 };
     if (!target) return;
     const outNum = from.group === 'court' ? from.number : target.dataset.number;
     const inNum = from.group === 'court' ? target.dataset.number : from.number;
-    recordSubs([{ out: outNum, in: inNum }]);
+    recordSubs(from.team, [{ out: outNum, in: inNum }]);
   };
   const onCancel = () => endDrag();
   document.addEventListener('pointermove', onMove);
@@ -450,53 +469,69 @@ export async function renderRecord(root, params, app) {
     }
   }, true);
 
-  function recordSubs(pairs) {
+  function recordSubs(team, pairs) {
     if (!pairs.length) return;
     const texts = [];
     for (const p of pairs) {
-      const e = addEvent({ type: 'sub', team: 'us', player: p.in, out: p.out });
+      const e = addEvent({ type: 'sub', team, player: p.in, out: p.out });
       texts.push(`#${e.out} → #${e.player}`);
     }
     // 交代で出た選手を選んでいたら外す
-    if (input.sel && input.sel.team === 'us' && pairs.some((p) => p.out === input.sel.player)) input = { ...input, sel: null };
-    setMessage(`交代：${texts.join('、')}`);
-    toast(`交代：${texts.join('、')}`);
+    if (input.sel && input.sel.team === team && pairs.some((p) => p.out === input.sel.player)) input = { ...input, sel: null };
+    const text = `交代（${TEAM_TITLE(team)}）：${texts.join('、')}`;
+    setMessage(text);
+    toast(text);
     update();
   }
 
+  /** コートの人数（自チームは名簿が5人未満ならその人数、相手は5人） */
+  const needOnCourt = (team) => (team === 'us' ? Math.min(COURT_SIZE, game.roster.length) : COURT_SIZE);
+
   // ---- 交代（まとめて）／コートの5人を選ぶ ----
-  function openSubModal() {
-    const before = court5();
-    const need = Math.min(COURT_SIZE, game.roster.length);
-    if (need === 0) {
+  function openSubModal(team = 'us') {
+    const before = courtOf(team);
+    if (team === 'us' && game.roster.length === 0) {
       toast('名簿に選手がいません。「＋選手」で追加してください。', { kind: 'error' });
       return;
     }
+    const need = needOnCourt(team);
     let after = before ? [...before] : [];
     const pf = fouls();
-    const grid = h('div', { class: 'sub-grid' });
+    const grid = h('div', { class: ['sub-grid', team] });
     const status = h('p', { class: 'sub-status' });
     const okBtn = h('button', { class: 'btn primary', type: 'button' });
     function draw() {
-      replace(grid, game.roster.map((p) => {
-        const n = String(p.number);
-        const isOn = after.includes(n);
-        const wasOn = before ? before.includes(n) : false;
-        const f = pf.us[n] || 0;
-        return h('button', {
-          class: ['btn sub-choice', isOn && 'on', before && wasOn && !isOn && 'leaving', before && !wasOn && isOn && 'entering', f >= 5 && 'fouled'],
-          type: 'button',
-          'aria-pressed': String(isOn),
-          onclick: () => {
-            after = isOn ? after.filter((x) => x !== n) : [...after, n];
-            draw();
+      replace(grid,
+        teamList(team).map((p) => {
+          const n = p.number;
+          const isOn = after.includes(n);
+          const wasOn = before ? before.includes(n) : false;
+          const f = pf[team][n] || 0;
+          return h('button', {
+            class: ['btn sub-choice', team, isOn && 'on', before && wasOn && !isOn && 'leaving', before && !wasOn && isOn && 'entering', f >= 5 && 'fouled'],
+            type: 'button',
+            'aria-pressed': String(isOn),
+            onclick: () => {
+              after = isOn ? after.filter((x) => x !== n) : [...after, n];
+              draw();
+            },
           },
-        },
-        h('span', { class: 'pl-num' }, n),
-        p.name ? h('span', { class: 'pl-name' }, p.name) : null,
-        f ? h('span', { class: ['pf', `pf${Math.min(f, 5)}`] }, f) : null,
-        h('span', { class: 'sub-mark' }, before ? (wasOn && !isOn ? 'OUT' : !wasOn && isOn ? 'IN' : '') : ''));
-      }));
+          h('span', { class: 'pl-num' }, n),
+          p.name ? h('span', { class: 'pl-name' }, p.name) : null,
+          f ? h('span', { class: ['pf', `pf${Math.min(f, 5)}`] }, f) : null,
+          h('span', { class: 'sub-mark' }, before ? (wasOn && !isOn ? 'OUT' : !wasOn && isOn ? 'IN' : '') : ''));
+        }),
+        team === 'opp'
+          ? h('button', {
+            class: 'btn sub-choice opp add', type: 'button',
+            onclick: () => addOppNumber({
+              then: (n) => {
+                if (!after.includes(n) && (!before || after.length < need)) after = [...after, n];
+                draw();
+              },
+            }),
+          }, h('span', { class: 'pl-tool' }, '＋番号'))
+          : null);
       const pairs = before ? swapPlan(before, after) : [];
       const countOk = after.length === need;
       if (!before) {
@@ -516,23 +551,24 @@ export async function renderRecord(root, params, app) {
     }
     okBtn.onclick = () => {
       if (!before) {
-        addEvent({ type: 'lineup', team: 'us', players: after });
-        setMessage(`出場メンバー：${after.map((n) => `#${n}`).join('・')}`);
+        addEvent({ type: 'lineup', team, players: after });
+        setMessage(`出場メンバー（${TEAM_TITLE(team)}）：${after.map((n) => `#${n}`).join('・')}`);
         close();
         update();
         return;
       }
       const pairs = swapPlan(before, after);
       close();
-      recordSubs(pairs);
+      recordSubs(team, pairs);
     };
     draw();
+    const who = team === 'us' ? '自チーム' : `相手${game.opponent ? `（${game.opponent}）` : ''}`;
     const close = modal({
-      title: before ? '選手交代' : 'コートにいる5人',
+      title: before ? `選手交代　${who}` : `コートにいる5人　${who}`,
       body: h('div', { class: 'sub-modal' },
         h('p', { class: 'muted' }, before
-          ? '出る選手（青）をタップして外し、入る選手をタップして入れます。何人でもまとめて交代できます。'
-          : '選んだ5人をコートに出します。以後は交代を記録すると、出場時間と +/- が集計に出ます。'),
+          ? '出る選手（色つき）をタップして外し、入る選手をタップして入れます。何人でもまとめて交代できます。'
+          : `選んだ5人をコートに出します。以後は交代を記録すると、出場時間と +/- が集計に出ます。${team === 'opp' ? '背番号がなければ「＋番号」で足せます。' : ''}`),
         grid, status, h('div', { class: 'sub-actions' }, okBtn)),
       actions: [{ label: 'やめる' }],
       wide: true,
@@ -572,7 +608,7 @@ export async function renderRecord(root, params, app) {
             game.roster = r.roster;
             saveGame();
             close();
-            toast(`#${value} を追加しました${court5() ? '（ベンチ）' : ''}`);
+            toast(`#${value} を追加しました${courtOf('us') ? '（ベンチ）' : ''}`);
             update();
             return undefined;
           },
@@ -737,26 +773,43 @@ export async function renderRecord(root, params, app) {
   }
 
   // ---- 試合前・クォーター間 ----
-  function starterPicker() {
-    const need = Math.min(COURT_SIZE, game.roster.length);
-    if (!starters) starters = defaultStarters(game.roster);
-    const status = starters.length === need
-      ? `先発：${starters.map((n) => `#${n}`).join('・')}`
-      : `先発を ${need} 人選んでください（いま ${starters.length} 人）。選ばずに始めると出場時間は記録しません`;
-    return h('div', { class: 'starter-pick' },
-      h('p', { class: 'starter-title' }, '先発（コートの5人）'),
-      h('div', { class: 'starter-grid' }, game.roster.map((p) => {
-        const n = String(p.number);
-        const isOn = starters.includes(n);
-        return h('button', {
-          class: ['btn sub-choice', isOn && 'on'], type: 'button', 'aria-pressed': String(isOn),
-          onclick: () => {
-            starters = isOn ? starters.filter((x) => x !== n) : [...starters, n];
-            renderOverlay();
-          },
-        }, h('span', { class: 'pl-num' }, n), p.name ? h('span', { class: 'pl-name' }, p.name) : null);
-      })),
-      h('p', { class: ['muted', starters.length !== need && 'warn-text'] }, status));
+  /** 試合開始前の先発の選択（自チームは名簿の先頭5人が初期値、相手は分かれば選ぶ） */
+  function starterPicker(team) {
+    const need = needOnCourt(team);
+    const list = teamList(team);
+    if (!starters[team]) starters[team] = team === 'us' ? defaultStarters(game.roster) : [];
+    const picked = starters[team];
+    const status = picked.length === need
+      ? `先発：${picked.map((n) => `#${n}`).join('・')}`
+      : team === 'us'
+        ? `先発を ${need} 人選んでください（いま ${picked.length} 人）。選ばずに始めると出場時間は記録しません`
+        : `分かれば ${need} 人選んでください（いま ${picked.length} 人）。あとから「交代」でも選べます`;
+    return h('div', { class: ['starter-pick', team] },
+      h('p', { class: 'starter-title' }, team === 'us' ? '自チームの先発' : `相手の先発${game.opponent ? `（${game.opponent}）` : ''}`),
+      h('div', { class: ['starter-grid', team] },
+        list.map((p) => {
+          const n = p.number;
+          const isOn = picked.includes(n);
+          return h('button', {
+            class: ['btn sub-choice', team, isOn && 'on'], type: 'button', 'aria-pressed': String(isOn),
+            onclick: () => {
+              starters[team] = isOn ? picked.filter((x) => x !== n) : [...picked, n];
+              renderOverlay();
+            },
+          }, h('span', { class: 'pl-num' }, n), p.name ? h('span', { class: 'pl-name' }, p.name) : null);
+        }),
+        team === 'opp'
+          ? h('button', {
+            class: 'btn sub-choice opp add', type: 'button',
+            onclick: () => addOppNumber({
+              then: (n) => {
+                if (!starters.opp.includes(n) && starters.opp.length < need) starters.opp = [...starters.opp, n];
+                update();
+              },
+            }),
+          }, h('span', { class: 'pl-tool' }, '＋番号'))
+          : null),
+      h('p', { class: ['starter-status', picked.length !== need && team === 'us' && 'warn-text'] }, status));
   }
 
   function renderOverlay() {
@@ -770,20 +823,25 @@ export async function renderRecord(root, params, app) {
     overlay.classList.add('show');
     const score = scoreOf(events);
     const isEndOfRegulation = qs.phase === 'break' && qs.quarter >= REGULAR_QUARTERS;
-    const pickStarters = qs.phase === 'pre' && !court5() && game.roster.length > 0;
+    const pickUs = qs.phase === 'pre' && !courtOf('us') && game.roster.length > 0;
+    const pickOpp = qs.phase === 'pre' && !courtOf('opp');
     const len = formatClock(quarterSeconds(qs.next, clockOpts()));
-    replace(overlay, h('div', { class: ['phase-card', pickStarters && 'with-starters'] },
+    const subButton = (team) => h('button', { class: ['btn', `sub-open ${team}`], type: 'button', onclick: () => openSubModal(team) },
+      icon('swap'), courtOf(team) ? `${TEAM_TITLE(team)}の交代` : `${TEAM_TITLE(team)}の5人を選ぶ`);
+    replace(overlay, h('div', { class: ['phase-card', (pickUs || pickOpp) && 'with-starters'] },
       qs.phase === 'pre'
         ? h('p', { class: 'phase-title' }, '試合開始前')
         : h('p', { class: 'phase-title' }, `${quarterLabel(qs.quarter)} 終了　自チーム ${score.us} − ${score.opp} 相手`),
-      pickStarters ? starterPicker() : null,
+      pickUs ? starterPicker('us') : null,
+      pickOpp ? starterPicker('opp') : null,
       qs.phase === 'pre'
-        ? h('p', { class: 'muted' }, `「自DF」「相手DF」を確かめて、試合が始まったら開始をタップしてください（時計 ${len} から動きます）。`)
+        ? h('p', { class: 'muted' }, `「自DF」「相手DF」を確かめて、試合が始まったら開始をタップ（時計 ${len} から動きます）。`)
         : h('p', { class: 'muted' }, `下のログをタップすると記録を修正できます。開始をタップすると時計が ${len} から動きます。`),
       h('button', { class: 'btn primary huge', type: 'button', onclick: () => startQuarter(qs.next) }, `${quarterLabel(qs.next)} 開始`),
       isEndOfRegulation ? h('p', { class: 'muted' }, '延長がない場合は、ここで記録は終わりです。') : null,
       h('div', { class: 'row center' },
-        qs.phase === 'break' && game.roster.length ? h('button', { class: 'btn', type: 'button', onclick: openSubModal }, icon('swap'), court5() ? '選手交代' : 'コートの5人を選ぶ') : null,
+        qs.phase === 'break' && game.roster.length ? subButton('us') : null,
+        qs.phase === 'break' ? subButton('opp') : null,
         qs.phase === 'break' ? h('a', { class: 'btn', href: summaryHref(qs.quarter) }, `${quarterLabel(qs.quarter)}のまとめ・AI特筆データ`) : null,
         qs.phase === 'break' ? h('a', { class: 'btn', href: `#/game/${game.id}/summary` }, '集計を見る') : null,
         h('a', { class: 'btn', href: '#/' }, 'ホームへ'))));
@@ -802,8 +860,14 @@ export async function renderRecord(root, params, app) {
   // ---- 操作 ----
   function startQuarter(q) {
     const qs = quarterState(events);
-    if (qs.phase === 'pre' && !court5() && starters && starters.length === Math.min(COURT_SIZE, game.roster.length) && starters.length > 0) {
-      addEvent({ type: 'lineup', team: 'us', players: starters, quarter: q });
+    if (qs.phase === 'pre') {
+      // 先発（選んだ人数がそろっているチームだけ）
+      for (const team of ['us', 'opp']) {
+        const picked = starters[team];
+        if (!courtOf(team) && picked && picked.length > 0 && picked.length === needOnCourt(team)) {
+          addEvent({ type: 'lineup', team, players: picked, quarter: q });
+        }
+      }
     }
     input = initialInput();
     // 時計をクォーターの長さに戻して動かす（試合が始まった瞬間に開始を押す）
@@ -867,7 +931,8 @@ export async function renderRecord(root, params, app) {
     });
   }
 
-  function addOppNumber() {
+  /** 相手の背番号を足す。then があれば足した番号を渡す（なければ、その番号を選んだことにする） */
+  function addOppNumber({ then } = {}) {
     let value = '';
     const display = h('div', { class: 'keypad-display' }, '');
     const show = () => { display.textContent = value || '背番号'; display.classList.toggle('placeholder', !value); };
@@ -899,6 +964,11 @@ export async function renderRecord(root, params, app) {
               saveGame();
             }
             close();
+            if (then) {
+              then(value);
+              return undefined;
+            }
+            if (courtOf('opp')) toast(`相手#${value} をベンチに追加しました。コートに入っていれば、ドラッグで交代してください`, { ms: 4000 });
             // 追加した番号をそのまま選んだことにする（シュート・プレー待ちならそのまま記録へ）
             dispatch({ type: 'player', team: 'opp', player: value });
             return undefined;
@@ -918,7 +988,8 @@ export async function renderRecord(root, params, app) {
             `${quarterLabel(qs.quarter)}のまとめ・AI特筆データ${qs.phase === 'live' ? '（ここまで）' : ''}`)
           : null,
         h('a', { class: 'btn', href: `#/game/${game.id}/summary`, onclick: () => close() }, '集計を見る'),
-        h('button', { class: 'btn', type: 'button', onclick: () => { close(); openSubModal(); } }, court5() ? '選手交代（まとめて）' : 'コートにいる5人を選ぶ'),
+        h('button', { class: 'btn', type: 'button', onclick: () => { close(); openSubModal('us'); } }, courtOf('us') ? '選手交代（自チーム）' : 'コートにいる5人を選ぶ（自チーム）'),
+        h('button', { class: 'btn', type: 'button', onclick: () => { close(); openSubModal('opp'); } }, courtOf('opp') ? '選手交代（相手）' : 'コートにいる5人を選ぶ（相手）'),
         h('button', { class: 'btn', type: 'button', onclick: () => { close(); addOurPlayer(); } }, '自チームの選手を追加'),
         h('a', { class: 'btn', href: `#/game/${game.id}/review`, onclick: () => close() }, '振り返り（プレー一覧・動画・チェックポイント）'),
         h('a', { class: 'btn', href: '#/qa', onclick: () => close() }, '場面別Q&A（よくある場面と対処の例）'),
@@ -1011,7 +1082,7 @@ export async function renderRecord(root, params, app) {
 
   // iPad で記録中に画面が動かないように
   const stopScroll = (ev) => {
-    if (!ev.target.closest('.modal')) ev.preventDefault();
+    if (!ev.target.closest('.modal, .phase-card')) ev.preventDefault();
   };
   document.addEventListener('touchmove', stopScroll, { passive: false });
 

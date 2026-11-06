@@ -139,7 +139,7 @@ body {
 
 button, input, select, textarea { font: inherit; color: inherit; }
 
-button, .btn, .pl-btn, .play-btn, .log-item, .tt-btn, .tab, .seg-btn {
+button, .btn, .pl-btn, .play-btn, .log-item, .tab, .seg-btn {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
@@ -403,6 +403,8 @@ select {
   background-repeat: no-repeat;
 }
 input[type="checkbox"] { accent-color: var(--accent); }
+.check-line { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 6px 0 10px; font-weight: 700; cursor: pointer; }
+.check-line input { width: 22px; height: 22px; flex: 0 0 auto; }
 .field.inline select { width: auto; flex: 1; }
 .form-error { color: var(--crit); font-weight: 700; min-height: 1.5em; }
 .form-actions { display: flex; justify-content: flex-end; }
@@ -500,24 +502,6 @@ body[data-view="record"] { overflow: hidden; overscroll-behavior: none; position
 }
 .rec-top .btn { padding: 0 10px; }
 .menu-btn { font-size: 14px; }
-.q-now {
-  font-family: var(--num);
-  font-size: 20px;
-  font-weight: 700;
-  min-width: 64px;
-  height: 40px;
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  white-space: nowrap;
-  border-radius: 10px;
-  background: var(--accent-soft);
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  color: var(--ink);
-  letter-spacing: .04em;
-}
-
 .scoreboard {
   display: flex;
   align-items: center;
@@ -543,6 +527,8 @@ body[data-view="record"] { overflow: hidden; overscroll-behavior: none; position
 .sb-num.us { box-shadow: inset 0 -4px 0 var(--us); }
 .sb-num.opp { box-shadow: inset 0 -4px 0 var(--opp); }
 .sb-sep { color: var(--muted); }
+.sb-name.us { flex-shrink: 0; max-width: none; }
+.sb-name.opp { min-width: 0; }
 
 .tf { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; column-gap: 6px; align-items: center; }
 .tf-label { grid-column: 1 / -1; font-size: 10px; color: var(--muted); text-align: center; line-height: 1.3; font-weight: 700; letter-spacing: .08em; }
@@ -555,7 +541,7 @@ body[data-view="record"] { overflow: hidden; overscroll-behavior: none; position
   align-items: flex-start;
   justify-content: center;
   min-height: var(--tap);
-  width: 132px;
+  width: 122px;
   padding: 2px 10px 2px 12px;
   border-radius: var(--radius);
   border: 1px solid var(--line-2);
@@ -623,39 +609,10 @@ body[data-view="record"] { overflow: hidden; overscroll-behavior: none; position
   min-height: 0;
 }
 
-.team-toggle {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 14px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-}
-.tt-btn {
-  min-height: 48px;
-  border-radius: 10px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--ink-2);
-  font-size: 17px;
-  font-weight: 800;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 8px;
-  letter-spacing: .03em;
-}
-.tt-btn.us.on { background: linear-gradient(180deg, var(--us-bright), var(--us)); color: #fff; box-shadow: 0 4px 14px color-mix(in srgb, var(--us) 45%, transparent); }
-.tt-btn.opp.on { background: linear-gradient(180deg, var(--opp-bright), var(--opp)); color: #fff; box-shadow: 0 4px 14px color-mix(in srgb, var(--opp) 45%, transparent); }
-
 .players {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  grid-auto-rows: 60px;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  align-content: start;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -781,7 +738,100 @@ p.ctx-done { margin: 0; text-align: center; font-size: 17px; }
 .play-btn.meta { background: var(--surface); font-size: 15px; color: var(--ink-2); }
 .play-btn.on { background: var(--accent); border-color: transparent; color: #fff; box-shadow: 0 0 0 2px var(--accent-soft), 0 0 18px var(--accent-glow); }
 .play-btn:disabled { opacity: .3; cursor: default; }
-.play-btn:active:not(:disabled), .pl-btn:active:not(:disabled), .tt-btn:active, .log-item:active { transform: translateY(1px); filter: brightness(.94); }
+.play-btn:active:not(:disabled), .pl-btn:active:not(:disabled), .log-item:active { transform: translateY(1px); filter: brightness(.94); }
+
+/* 自チーム（コート・ベンチ）と相手の選手ボタン */
+.side { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+.side-label { display: flex; align-items: baseline; gap: 10px; font-size: 11px; font-weight: 800; color: var(--ink-2); letter-spacing: .05em; padding-left: 7px; border-left: 3px solid; line-height: 1.25; white-space: nowrap; overflow: hidden; }
+.side.us .side-label { border-color: var(--us); }
+.side.opp .side-label { border-color: var(--opp); }
+.side-hint { font-weight: 700; color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0; }
+.oncourt { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, .7fr); grid-auto-rows: 58px; gap: 5px; }
+.bench { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-auto-rows: 44px; gap: 4px; padding-top: 4px; border-top: 1px dashed var(--line-2); }
+.roster-all { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: 52px; gap: 5px; }
+.opp-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-auto-rows: 46px; gap: 4px; }
+.opp-grid .pl-num { font-size: 21px; }
+.pl-btn.benched { background: var(--surface); border-top-width: 1px; }
+.pl-btn.benched .pl-num { font-size: 18px; }
+.pl-btn.benched .pl-name { font-size: 9px; margin-top: 0; }
+.pl-btn.benched .pf, .opp-grid .pf { top: 1px; right: 1px; min-width: 16px; height: 16px; font-size: 11px; line-height: 16px; }
+.pl-btn.nobody .pl-num { font-size: 13px; word-break: keep-all; line-height: 1.15; }
+.pl-btn.tool { border-style: dashed; background: transparent; border-top-width: 1px; }
+.pl-tool { font-size: 12px; font-weight: 800; white-space: nowrap; letter-spacing: 0; }
+.pl-btn.sub-btn { border-style: solid; background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.rec .pl-btn[data-group] { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.pl-btn.dragging { opacity: .35; }
+.players.drag-on .bench, .players.drag-on .oncourt { outline: 1px dashed color-mix(in srgb, var(--warn) 60%, transparent); outline-offset: 2px; border-radius: 10px; }
+.pl-btn.drop-hover { outline: 3px solid var(--warn); outline-offset: 1px; box-shadow: 0 0 16px rgba(250, 178, 25, .45); }
+.drag-ghost { position: fixed; left: 0; top: 0; z-index: 1000; pointer-events: none; opacity: .92; margin: 0; box-shadow: 0 12px 30px rgba(0, 0, 0, .5); }
+
+/* 試合時計 */
+.clock-btn {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 48px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-3);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.clock-q { grid-column: 1; grid-row: 1; font-size: 11px; font-weight: 800; color: var(--ink-2); letter-spacing: .04em; white-space: nowrap; line-height: 1.2; }
+.clock-time { grid-column: 1; grid-row: 2; font-family: var(--num); font-size: 25px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; min-width: 2.9em; }
+.clock-state { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: center; font-size: 10px; font-weight: 800; gap: 1px; white-space: nowrap; }
+.clock-state .icon { width: 20px; height: 20px; }
+.clock-btn.running { border-color: color-mix(in srgb, var(--good) 75%, transparent); box-shadow: 0 0 0 1px rgba(31, 191, 116, .25), 0 0 16px rgba(31, 191, 116, .2); }
+.clock-btn.running .clock-state { color: var(--good); }
+.clock-btn.stopped:not(.none) { border-color: color-mix(in srgb, var(--warn) 75%, transparent); background: color-mix(in srgb, var(--warn) 13%, var(--surface-3)); }
+.clock-btn.stopped:not(.none) .clock-state { color: var(--warn); }
+.clock-btn:disabled { cursor: default; opacity: 1; }
+.clock-btn.none .clock-state { display: none; }
+.clock-btn.none .clock-time { color: var(--muted); }
+.rec-top .clock-adj { width: 44px; padding: 0; flex: 0 0 auto; }
+.clock-adjust { display: grid; gap: 10px; }
+.clock-bumps { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.clock-bump { min-height: 52px; font-size: 16px; padding: 0 4px; }
+.clock-display.typing { color: var(--accent); }
+.add-name { font-size: 18px; min-height: 48px; }
+
+/* シュート・フリースローの直後の1タップ（アシスト・リバウンド） */
+.follow-row { align-items: stretch; }
+.ctx-row.follow-row .btn { flex: 1 1 0; min-height: 44px; padding: 0 2px; font-family: var(--num); font-size: 17px; }
+.follow-label { flex: 0 0 auto; display: flex; flex-direction: column; justify-content: center; font-size: 12px; font-weight: 800; color: var(--ink-2); padding-right: 2px; min-width: 4.4em; line-height: 1.2; }
+.follow-sub { font-size: 10px; color: var(--muted); font-weight: 700; }
+.follow-btn.us { border-top: 3px solid var(--us); }
+.ctx-row.follow-row .follow-btn.opp { border-top: 3px solid var(--opp); font-family: var(--font); font-size: 14px; }
+.follow-btn.on { background: var(--accent); color: #fff; border-color: transparent; box-shadow: 0 0 14px var(--accent-glow); }
+.follow-btn.out { opacity: .4; }
+.context.with-follow { gap: 5px; padding: 5px 8px; }
+.context.with-follow .tag-row { flex-wrap: nowrap; }
+.context.with-follow .tag-row .btn { flex: 1 1 0; min-height: 44px; font-size: 12px; line-height: 1.15; padding: 0 2px; }
+.tag-btn { word-break: keep-all; white-space: normal; }
+
+/* 交代・先発の選択 */
+.phase-card.with-starters { padding: 16px 20px; gap: 10px; width: min(560px, 100%); }
+.starter-pick { width: 100%; }
+.starter-title { margin: 0 0 6px; font-weight: 800; }
+.starter-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.sub-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.sub-choice { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 56px; padding: 2px; border-top: 3px solid var(--us); gap: 0; }
+.sub-choice .pl-num { font-size: 22px; }
+.sub-choice .pl-name { font-size: 11px; }
+.sub-choice.on { background: linear-gradient(180deg, var(--us-bright), var(--us)); color: #fff; border-color: transparent; }
+.sub-choice.on .pl-name { color: rgba(255, 255, 255, .9); }
+.sub-choice.leaving { outline: 2px dashed var(--opp); outline-offset: -2px; }
+.sub-choice.fouled .pl-num { text-decoration: line-through; }
+.sub-mark { font-size: 10px; font-weight: 800; min-height: 12px; line-height: 12px; }
+.sub-choice.leaving .sub-mark { color: var(--opp-bright); }
+.sub-status { font-weight: 800; margin: 6px 0; }
+.sub-status.warn, .warn-text { color: var(--warn); }
+.sub-actions { display: flex; justify-content: flex-end; }
+.sub-actions .btn { min-width: 160px; }
 
 .phase-overlay {
   display: none;
@@ -837,10 +887,19 @@ p.ctx-done { margin: 0; text-align: center; font-size: 17px; }
   .sb-name { max-width: 5em; }
   .sb-num { font-size: 30px; }
   .tf-val { font-size: 13px; padding: 1px 5px; }
-  .q-now { min-width: 52px; font-size: 18px; }
   .log-text { font-size: 12px; }
   .log-item { padding: 2px 6px; }
-  .players { grid-auto-rows: 56px; }
+  .oncourt { grid-auto-rows: 54px; }
+  .rec-top .df-btn { width: 96px; padding-left: 8px; padding-right: 6px; }
+  .rec-top .undo-btn .icon { display: none; }
+  .rec-top { gap: 5px; }
+  .scoreboard { gap: 5px; }
+  .sb-num { min-width: 1.4em; padding: 4px 4px 6px; }
+  .rec-top .q-btn .icon { display: none; }
+  .clock-state { font-size: 0; }
+  .rec-top .undo-btn { padding: 0 8px; }
+  .clock-time { font-size: 22px; }
+  .clock-btn { padding: 2px 8px; column-gap: 6px; }
   .pl-num { font-size: 24px; }
   .plays { grid-auto-rows: 54px; }
   .play-btn { font-size: 15px; }

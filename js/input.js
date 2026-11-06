@@ -3,6 +3,7 @@
 //
 // どのプレーも「選手 → ボタン」「ボタン → 選手」のどちらの順でも記録できる。
 // フィールドゴールは「コート → 選手 → 成功／失敗」（選手を先に選んでからコートでもよい）。
+// シュート・フリースローの直後は、続きのプレーを1タップで記録できる（アシスト、リバウンド、2本目のフリースロー）。
 import { isThree, zoneOf } from './court.js';
 import { whoLabel } from './model.js';
 
@@ -34,6 +35,10 @@ export function initialInput() {
     tagKind: null, // 'fg' | 'to'
     tagEventId: null,
     tags: [],
+    // 直前のシュート・フリースロー（続きのプレーの1タップ記録に使う）{ kind: 'fg'|'ft', team, player, made }
+    after: null,
+    assistId: null, // 続けて記録したアシストのイベント
+    assistPlayer: null,
   };
 }
 
@@ -42,9 +47,9 @@ function reset(state, keep = {}) {
 }
 
 function closeTransient(state) {
-  // 種類タグ・タイムアウト・得点補正の選択は、ほかの操作を始めたら閉じる
-  if (state.sheet === 'tags' || state.sheet === 'timeout' || state.sheet === 'adjust') {
-    return { ...state, sheet: null, tagKind: null, tagEventId: null, tags: [] };
+  // 種類タグ・フリースローの続き・タイムアウト・得点補正の選択は、ほかの操作を始めたら閉じる
+  if (['tags', 'ft', 'timeout', 'adjust'].includes(state.sheet)) {
+    return { ...state, sheet: null, tagKind: null, tagEventId: null, tags: [], after: null, assistId: null, assistPlayer: null };
   }
   return state;
 }
@@ -67,6 +72,9 @@ function recordAction(state, action, who, ctx) {
   const ops = [{ op: 'add', draft }];
   if (action === 'to') {
     return { state: reset(state, { sheet: 'tags', tagKind: 'to', tagEventId: id }), ops };
+  }
+  if (action === 'ft_made' || action === 'ft_miss') {
+    return { state: reset(state, { sheet: 'ft', tagEventId: id, after: { kind: 'ft', team: who.team, player: who.player, made: action === 'ft_made' } }), ops };
   }
   return { state: reset(state), ops };
 }
@@ -146,7 +154,43 @@ export function step(state, cmd, ctx) {
         zone: zoneOf(x, y, state.three),
         tags: [],
       };
-      return { state: reset(state, { sheet: 'tags', tagKind: 'fg', tagEventId: id }), ops: [{ op: 'add', draft }] };
+      const after = { kind: 'fg', team: draft.team, player: draft.player, made: draft.made };
+      return { state: reset(state, { sheet: 'tags', tagKind: 'fg', tagEventId: id, after }), ops: [{ op: 'add', draft }] };
+    }
+
+    case 'assist': {
+      // 自チームのシュート成功の直後：アシストした選手を1タップ（もう一度押すと取り消し、別の選手を押すと付け替え）
+      const a = state.after;
+      if (!a || a.kind !== 'fg' || !a.made || a.team !== 'us') return { state, ops: [] };
+      const player = String(cmd.player);
+      if (player === a.player) return { state, ops: [], error: 'シュートした選手はアシストにできません' };
+      const ops = state.assistId ? [{ op: 'remove', id: state.assistId }] : [];
+      if (state.assistPlayer === player) return { state: { ...state, assistId: null, assistPlayer: null }, ops };
+      const id = ctx.newId();
+      ops.push({ op: 'add', draft: { id, team: 'us', player, type: 'ast', tags: [] } });
+      return { state: { ...state, assistId: id, assistPlayer: player }, ops };
+    }
+
+    case 'rebound': {
+      // シュート・フリースロー失敗の直後：リバウンドを1タップ（シュートしたチームなら OR、相手なら DR）
+      const a = state.after;
+      if (!a || a.made) return { state, ops: [] };
+      const team = cmd.team === 'opp' ? 'opp' : 'us';
+      const player = cmd.player == null ? null : String(cmd.player);
+      if (player != null && disabled(team, player)) {
+        return { state, ops: [], error: `${whoLabel(team, player)} は5ファウルです` };
+      }
+      const draft = { id: ctx.newId(), team, player, type: team === a.team ? 'oreb' : 'dreb', tags: [] };
+      return { state: reset(state), ops: [{ op: 'add', draft }] };
+    }
+
+    case 'ftAgain': {
+      // フリースローの直後：同じ選手の次の1本
+      const a = state.after;
+      if (!a || a.kind !== 'ft') return { state, ops: [] };
+      const id = ctx.newId();
+      const draft = { id, team: a.team, player: a.player, ...ACTIONS[cmd.made ? 'ft_made' : 'ft_miss'].draft, tags: [] };
+      return { state: reset(state, { sheet: 'ft', tagEventId: id, after: { ...a, made: !!cmd.made } }), ops: [{ op: 'add', draft }] };
     }
 
     case 'tag': {
@@ -184,16 +228,12 @@ export function step(state, cmd, ctx) {
 
 /** いま何を待っているかの案内文（操作の案内だけ。戦術の指示は書かない） */
 export function hintFor(state) {
-  if (state.loc && !state.sel) {
-    return state.team === 'opp'
-      ? 'シュート位置 → 選手を選ぶ（番号が分からなければ「番号なし」）'
-      : 'シュート位置 → 選手を選ぶ';
-  }
+  if (state.loc && !state.sel) return 'シュート位置 → 選手を選ぶ（相手の番号が分からなければ「番号なし」）';
   if (state.action && !state.sel) {
     const label = ACTIONS[state.action].label;
-    if (state.team === 'opp') return `${label}：選手を選ぶ（番号が分からなければ「番号なし」）`;
-    if (US_TEAM_OK.has(state.action)) return `${label}：選手を選ぶ（選手なしは「チーム」）`;
-    return `${label}：選手を選ぶ`;
+    if (US_ONLY.has(state.action)) return `${label}：自チームの選手を選ぶ`;
+    if (US_TEAM_OK.has(state.action)) return `${label}：選手を選ぶ（選手なしは「チーム」／相手は「番号なし」も可）`;
+    return `${label}：選手を選ぶ（相手の番号が分からなければ「番号なし」）`;
   }
   if (state.sel) return `${whoLabel(state.sel.team, state.sel.player)} を選択中 → プレーを選ぶ／コートをタップ`;
   return 'コートをタップ → シュート　／　選手 → プレー';

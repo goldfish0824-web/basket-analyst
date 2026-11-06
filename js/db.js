@@ -341,6 +341,10 @@ export const DEFAULT_SETTINGS = {
   lastBackupAt: null,
   checklistTemplate: [],
   rewindSec: 8,
+  // 試合時計（端末ごと）：クォーターと延長の長さ（分）、ファウル・タイムアウトを記録したら時計を止めるか
+  quarterMin: 10,
+  otMin: 5,
+  clockAutoStop: true,
   // 場面別Q&A のお気に入りとチームのメモ
   qaFavorites: [],
   qaNotes: {},

@@ -1,4 +1,5 @@
 // 振り返り（SPEC 6章）：動画との連動、プレー一覧の絞り込み、チェックポイントの自動判定。すべて純粋関数。
+import { formatClock as gameClockText } from './clock.js';
 import { quarterLabel, REGULAR_QUARTERS } from './model.js';
 import { inQuarterRange, teamBox, teamIndicators, taggedPoints } from './stats.js';
 
@@ -123,6 +124,7 @@ export const PLAY_KINDS = [
   { key: 'ast_stl_blk', label: 'アシスト・スティール・ブロック' },
   { key: 'timeout', label: 'タイムアウト' },
   { key: 'quarter', label: 'クォーター開始・終了' },
+  { key: 'sub', label: '選手交代' },
 ];
 
 function kindMatch(e, kind) {
@@ -138,6 +140,7 @@ function kindMatch(e, kind) {
     case 'ast_stl_blk': return e.type === 'ast' || e.type === 'stl' || e.type === 'blk';
     case 'timeout': return e.type === 'timeout';
     case 'quarter': return e.type === 'q_start' || e.type === 'q_end';
+    case 'sub': return e.type === 'sub' || e.type === 'lineup';
     default: return true;
   }
 }
@@ -163,8 +166,10 @@ export function filterPlays(events, filter = {}) {
 
 /** クォーター開始からの経過（「+3:12」） */
 export function elapsedText(event, events) {
+  // 試合時計を使った記録は「残り 5:32」、使っていない記録はクォーター開始からの経過「+3:20」
+  if (event.clock != null) return `残り${gameClockText(event.clock)}`;
   const base = quarterStartTs(events, event.quarter);
-  if (base == null || event.ts == null) return '';
+  if (base == null || event.ts == null || event.ts < base) return '';
   return `+${formatClock((event.ts - base) / 1000)}`;
 }
 

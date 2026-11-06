@@ -183,6 +183,7 @@ export async function renderSettings(root, params, app) {
               toast('例を追加しました（保存するまで反映されません）');
             },
           }, '例を入れる'))),
+      clockCard(app),
       h('section', { class: 'card' },
         h('h2', null, '振り返り（動画）'),
         h('label', { class: 'field inline' },
@@ -448,3 +449,26 @@ function updateCard() {
     h('p', { class: 'field-note' }, 'ホーム画面から開いたアプリも、前面に出したときに新しい版を自動で確かめます。新しい版になると、画面の下に「更新する」が出ます（ホーム画面ではそのまま読み込み直します）。記録は消えません。'));
 }
 
+
+/** 試合時計（クォーター・延長の長さ、記録したら時計を止めるプレー） */
+function clockCard(app) {
+  const minuteSelect = (value, max, label) => h('select', { 'aria-label': label, class: 'clock-min' },
+    Array.from({ length: max }, (_, i) => i + 1).map((m) => h('option', { value: String(m), selected: m === Number(value) }, `${m}分`)));
+  const qSel = minuteSelect(app.settings.quarterMin ?? 10, 12, 'クォーターの長さ');
+  const otSel = minuteSelect(app.settings.otMin ?? 5, 10, '延長の長さ');
+  const autoStop = h('input', { type: 'checkbox', checked: app.settings.clockAutoStop !== false, 'aria-label': 'ファウル・タイムアウトを記録したら時計を止める' });
+  return h('section', { class: 'card' },
+    h('h2', null, '試合時計'),
+    h('p', { class: 'field-note' }, '記録画面の時計は、クォーター開始で動き出します。笛で止まったら時計をタップして止め、プレーが再開したらもう一度タップして動かします。記録には時計の残り時間が付き、出場時間の計算にも使います。'),
+    h('div', { class: 'row' },
+      h('label', { class: 'field inline' }, h('span', { class: 'field-label' }, 'クォーター'), qSel),
+      h('label', { class: 'field inline' }, h('span', { class: 'field-label' }, '延長'), otSel)),
+    h('label', { class: 'check-line' }, autoStop, h('span', null, 'ファウル・タイムアウトを記録したら時計を止める')),
+    h('div', { class: 'row' }, h('button', {
+      class: 'btn primary', type: 'button',
+      onclick: async () => {
+        await app.saveSettings({ ...app.settings, quarterMin: Number(qSel.value), otMin: Number(otSel.value), clockAutoStop: autoStop.checked });
+        toast('保存しました（次に開始するクォーターから使います）');
+      },
+    }, '保存')));
+}

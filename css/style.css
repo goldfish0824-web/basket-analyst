@@ -761,7 +761,7 @@ p.ctx-done { margin: 0; text-align: center; font-size: 17px; }
 .pl-btn.sub-btn { border-style: solid; background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .rec .pl-btn[data-group] { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .pl-btn.dragging { opacity: .35; }
-.players.drag-on .bench, .players.drag-on .oncourt { outline: 1px dashed color-mix(in srgb, var(--warn) 60%, transparent); outline-offset: 2px; border-radius: 10px; }
+.players.drag-us .side.us :is(.bench, .oncourt), .players.drag-opp .side.opp :is(.bench, .oncourt) { outline: 1px dashed color-mix(in srgb, var(--warn) 60%, transparent); outline-offset: 2px; border-radius: 10px; }
 .pl-btn.drop-hover { outline: 3px solid var(--warn); outline-offset: 1px; box-shadow: 0 0 16px rgba(250, 178, 25, .45); }
 .drag-ghost { position: fixed; left: 0; top: 0; z-index: 1000; pointer-events: none; opacity: .92; margin: 0; box-shadow: 0 12px 30px rgba(0, 0, 0, .5); }
 
@@ -814,15 +814,32 @@ p.ctx-done { margin: 0; text-align: center; font-size: 17px; }
 .tag-btn { word-break: keep-all; white-space: normal; }
 
 /* 交代・先発の選択 */
-.phase-card.with-starters { padding: 16px 20px; gap: 10px; width: min(560px, 100%); }
-.starter-pick { width: 100%; }
-.starter-title { margin: 0 0 6px; font-weight: 800; }
-.starter-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.phase-card { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+.phase-card.with-starters { padding: 14px 18px; gap: 8px; width: min(600px, 100%); }
+.starter-pick { width: 100%; text-align: left; }
+.starter-pick + .starter-pick { padding-top: 8px; border-top: 1px dashed var(--line-2); }
+.starter-title { margin: 0 0 5px; font-weight: 800; font-size: 14px; padding-left: 7px; border-left: 3px solid var(--us); }
+.starter-pick.opp .starter-title { border-left-color: var(--opp); }
+.starter-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 5px; }
+.starter-grid .sub-choice { min-height: 44px; }
+.phase-card.with-starters .phase-title { font-size: 18px; }
+.phase-card.with-starters > .muted { margin: 0; font-size: 13px; }
+.phase-card.with-starters .btn.huge { min-height: 56px; font-size: 22px; padding: 0 40px; }
+.phase-card.with-starters .row.center .btn { min-height: 44px; }
+.starter-grid .pl-num { font-size: 19px; }
+.starter-grid .pl-name { font-size: 9px; }
+.starter-status { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
 .sub-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.sub-grid.opp { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 .sub-choice { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 56px; padding: 2px; border-top: 3px solid var(--us); gap: 0; }
 .sub-choice .pl-num { font-size: 22px; }
 .sub-choice .pl-name { font-size: 11px; }
 .sub-choice.on { background: linear-gradient(180deg, var(--us-bright), var(--us)); color: #fff; border-color: transparent; }
+.sub-choice.opp { border-top-color: var(--opp); }
+.sub-choice.opp.on { background: linear-gradient(180deg, var(--opp-bright), var(--opp)); }
+.sub-choice.add { border-style: dashed; background: transparent; }
+.sub-choice.opp.leaving { outline-color: var(--us); }
+.sub-choice.opp.leaving .sub-mark { color: var(--us-bright); }
 .sub-choice.on .pl-name { color: rgba(255, 255, 255, .9); }
 .sub-choice.leaving { outline: 2px dashed var(--opp); outline-offset: -2px; }
 .sub-choice.fouled .pl-num { text-decoration: line-through; }

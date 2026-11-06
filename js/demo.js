@@ -5,7 +5,7 @@
 //   - 3Q の相手 2-2-1プレスで自チームのターンオーバーが続く
 //   - 自#5 のファウルが前半3つ、3Qで4つ。相手#10 は4Qに5つ目
 //   - 相手のオフェンスリバウンドが多い、自チームのフリースローが入らない
-//   - 先発（#4〜#8）と交代、試合時計の残り時間（出場時間・+/- の確認用）
+//   - 両チームの先発と交代、試合時計の残り時間（出場時間・+/- の確認用）
 import { COURT_W, zoneOf, zonePolygons } from './court.js';
 import { makeEvent, newGame, uuid } from './model.js';
 
@@ -240,24 +240,28 @@ export function generateDemo(opts = {}) {
     events.push(makeEvent(draft, { gameId: game.id, seq, quarter, live: { ...live }, ts, id: newId() }));
   };
 
-  // 先発。記録に出てくる自チームの選手がベンチにいたら、その前に交代を入れる
+  // 先発（両チーム）。記録に出てくる選手がベンチにいたら、その前に交代を入れる
   // （出す選手は、このクォーターでいちばん後まで記録に出てこない選手）
-  let court = DEMO_ROSTER.slice(0, 5).map((p) => p.number);
-  ts = start - 120000;
-  push({ type: 'lineup', team: U, players: court }, 1, 0);
-  const usPlayerOf = (it) => {
-    if (it[0] === 'ast' || it[0] === 'stl' || it[0] === 'blk') return it[1];
-    return it[1] === U && it[2] != null && ['fg', 'ft', 'or', 'dr', 'to', 'foul'].includes(it[0]) ? it[2] : null;
+  const playerOf = (it, team) => {
+    if (team === U && (it[0] === 'ast' || it[0] === 'stl' || it[0] === 'blk')) return it[1];
+    return it[1] === team && it[2] != null && ['fg', 'ft', 'or', 'dr', 'to', 'foul'].includes(it[0]) ? it[2] : null;
   };
-  const ensureOnCourt = (player, items, from, quarter) => {
+  const firstFive = (team) => [...new Set(SCRIPT.flat().map((it) => playerOf(it, team)).filter((n) => n != null))].slice(0, 5);
+  const courts = { [U]: DEMO_ROSTER.slice(0, 5).map((p) => p.number), [O]: firstFive(O) };
+  ts = start - 120000;
+  push({ type: 'lineup', team: U, players: courts[U] }, 1, 0);
+  push({ type: 'lineup', team: O, players: courts[O] }, 1, 1000);
+  const ensureOnCourt = (team, items, from, quarter) => {
+    const player = playerOf(items[from], team);
+    const court = courts[team];
     if (player == null || court.includes(player)) return;
     const nextUse = (n) => {
-      for (let k = from; k < items.length; k++) if (usPlayerOf(items[k]) === n) return k;
+      for (let k = from; k < items.length; k++) if (playerOf(items[k], team) === n) return k;
       return Infinity;
     };
     const out = [...court].sort((a, b) => nextUse(b) - nextUse(a))[0];
-    push({ type: 'sub', team: U, player, out }, quarter, 3000);
-    court = court.map((n) => (n === out ? player : n));
+    push({ type: 'sub', team, player, out }, quarter, 3000);
+    courts[team] = court.map((n) => (n === out ? player : n));
   };
 
   SCRIPT.forEach((items, qi) => {
@@ -267,7 +271,8 @@ export function generateDemo(opts = {}) {
     push({ type: 'q_start' }, quarter);
     for (const [idx, it] of items.entries()) {
       const [kind] = it;
-      ensureOnCourt(usPlayerOf(it), items, idx, quarter);
+      ensureOnCourt(U, items, idx, quarter);
+      ensureOnCourt(O, items, idx, quarter);
       switch (kind) {
         case 'df':
           if (it[1] === U) live.usDF = it[2];

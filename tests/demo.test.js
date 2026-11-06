@@ -12,7 +12,7 @@ function demo() {
 
 test('約120イベント、4クォーターすべてに開始と終了', () => {
   const { game, events } = demo();
-  assert.ok(events.length >= 100 && events.length <= 140, `イベント数 ${events.length}`);
+  assert.ok(events.length >= 100 && events.length <= 160, `イベント数 ${events.length}`);
   for (let q = 1; q <= 4; q++) {
     assert.equal(events.filter((e) => e.type === 'q_start' && e.quarter === q).length, 1);
     assert.equal(events.filter((e) => e.type === 'q_end' && e.quarter === q).length, 1);
@@ -90,16 +90,19 @@ test('ゾーン内の点を作る', () => {
 test('デモ：先発と交代、試合時計で、出場時間と +/- が出る', async () => {
   const { playingTime, onCourt } = await import('../js/lineup.js');
   const { events } = demo();
-  assert.equal(events[0].type, 'lineup');
-  assert.ok(events.some((e) => e.type === 'sub'));
-  // 記録に出てくる自チームの選手は、そのときコートにいる
+  assert.deepEqual(events.slice(0, 2).map((e) => [e.type, e.team]), [['lineup', 'us'], ['lineup', 'opp']]);
+  assert.ok(events.some((e) => e.type === 'sub' && e.team === 'us'));
+  assert.ok(events.some((e) => e.type === 'sub' && e.team === 'opp'));
+  // 記録に出てくる選手は、そのときコートにいる（両チーム）
   for (const e of events) {
-    if (e.team !== 'us' || e.player == null || e.type === 'sub' || e.type === 'lineup') continue;
+    if (e.player == null || e.type === 'sub' || e.type === 'lineup') continue;
     const before = events.filter((x) => x.seq < e.seq);
-    assert.ok(onCourt(before).includes(e.player), `seq ${e.seq} #${e.player}`);
+    assert.ok(onCourt(before, e.team).includes(e.player), `seq ${e.seq} ${e.team}#${e.player}`);
   }
-  const pt = playingTime(events);
-  const total = Object.values(pt.seconds).reduce((a, b) => a + b, 0);
-  assert.equal(Math.round(total), 4 * 600 * 5, '4クォーター×10分×5人');
+  for (const team of ['us', 'opp']) {
+    const pt = playingTime(events, team);
+    const total = Object.values(pt.seconds).reduce((a, b) => a + b, 0);
+    assert.equal(Math.round(total), 4 * 600 * 5, `${team}：4クォーター×10分×5人`);
+  }
   for (const e of events) if (e.type !== 'lineup') assert.ok(e.clock != null && e.clock >= 0 && e.clock <= 600, `seq ${e.seq}`);
 });

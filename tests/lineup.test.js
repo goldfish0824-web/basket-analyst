@@ -124,3 +124,29 @@ test('交代・出場メンバーのイベント：形、表示、ボックス�
   assert.equal(box.other, null);
   assert.equal(box.rows.length, roster.length, '交代で入った #12 を名簿外の行として足さない');
 });
+
+test('相手チームも同じ形で交代・出場時間・+/- を数える（+/- は相手から見た得失点差）', () => {
+  seq = 0;
+  const events = [
+    ev({ type: 'lineup', team: 'us', players: ['4', '5', '6', '7', '8'] }),
+    ev({ type: 'lineup', team: 'opp', players: ['10', '11', '12', '13', '14'] }),
+    ev({ type: 'q_start', clock: 600 }),
+    ev({ type: 'fg', team: 'opp', player: '10', made: true, points: 3, x: 1, y: 1, zone: 'c3_left', clock: 500 }),
+    ev({ type: 'sub', team: 'opp', player: '15', out: '12', clock: 450 }),
+    ev({ type: 'fg', team: 'us', player: '4', made: true, points: 2, x: 7.5, y: 2, zone: 'paint', clock: 300 }),
+    ev({ type: 'q_end', clock: 0 }),
+  ];
+  assert.deepEqual(onCourt(events, 'opp'), ['10', '11', '15', '13', '14']);
+  assert.deepEqual(onCourt(events, 'us'), ['4', '5', '6', '7', '8'], '相手の交代は自チームに影響しない');
+  const r = playingTime(events, 'opp');
+  assert.equal(r.tracked, true);
+  assert.equal(r.seconds['12'], 150);
+  assert.equal(r.seconds['15'], 450);
+  assert.equal(r.seconds['10'], 600);
+  assert.equal(r.plusMinus['12'], 3);
+  assert.equal(r.plusMinus['15'], -2);
+  assert.equal(r.plusMinus['10'], 1);
+  assert.equal(playingTime(events, 'us').plusMinus['4'], -1);
+  const box = teamBox(events, 'opp', []);
+  assert.equal(box.rows.length, 1, '交代・出場メンバーはボックススコアの行にしない（#10 の得点だけ）');
+});

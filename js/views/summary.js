@@ -150,14 +150,28 @@ export function boxSection(game, events) {
   if (us.other) usFoot.push({ cells: usLine('チーム', '補正・チームリバウンド等', us.other), cls: 'sub' });
   usFoot.push({ cells: usLine('合計', '', us.total), cls: 'total' });
 
-  const oppPlayers = sortNumbers([...new Set([...(game.oppNumbers || []), ...events.filter((e) => e.team === 'opp' && e.player != null).map((e) => e.player)])])
+  const oppSeen = events.filter((e) => e.team === 'opp').flatMap((e) => [e.player, e.type === 'sub' ? e.out : null, ...(e.type === 'lineup' ? e.players || [] : [])]).filter((n) => n != null);
+  const oppPlayers = sortNumbers([...new Set([...(game.oppNumbers || []), ...oppSeen])])
     .map((n) => ({ number: n }));
   const opp = teamBox(events, 'opp', oppPlayers);
-  const oppHead = [{ label: '背番号' }, { label: '得点' }, { label: 'FG' }, { label: 'FG%' }, { label: '3P' }, { label: '3P%' }, { label: 'ファウル' }];
-  const oppLine = (label, r) => [label, r.pts, ma(r.fgm, r.fga), pctText(r.fgm, r.fga), ma(r.tpm, r.tpa), pctText(r.tpm, r.tpa), r.pf];
+  const ptOpp = playingTime(events, 'opp');
+  const oppTime = ptOpp.tracked && ptOpp.seconds != null;
+  const oppPm = ptOpp.tracked;
+  const oppHead = [
+    { label: '背番号' },
+    ...(oppTime ? [{ label: '出場時間' }] : []), ...(oppPm ? [{ label: '+/-' }] : []),
+    { label: '得点' }, { label: 'FG' }, { label: 'FG%' }, { label: '3P' }, { label: '3P%' }, { label: 'ファウル' },
+  ];
+  const oppLine = (label, r, number) => [
+    label,
+    ...(oppTime ? [number == null ? '' : minutesText(ptOpp.seconds[number] ?? 0)] : []),
+    ...(oppPm ? [number == null ? '' : pmText(ptOpp.plusMinus[number] ?? 0)] : []),
+    r.pts, ma(r.fgm, r.fga), pctText(r.fgm, r.fga), ma(r.tpm, r.tpa), pctText(r.tpm, r.tpa), r.pf,
+  ];
+  const played = (n) => (ptOpp.seconds && ptOpp.seconds[n] > 0) || (ptOpp.tracked && n in ptOpp.plusMinus);
   const oppRows = opp.rows
-    .filter((r) => r.pts || r.fga || r.pf || r.fta || r.oreb || r.dreb || r.to)
-    .map((r) => ({ cells: oppLine(`#${r.number}`, r), cls: r.pf >= 5 ? 'out' : r.pf === 4 ? 'pf4' : r.pf === 3 ? 'pf3' : '' }));
+    .filter((r) => r.pts || r.fga || r.pf || r.fta || r.oreb || r.dreb || r.to || played(r.number))
+    .map((r) => ({ cells: oppLine(`#${r.number}`, r, r.number), cls: r.pf >= 5 ? 'out' : r.pf === 4 ? 'pf4' : r.pf === 3 ? 'pf3' : '' }));
   const oppFoot = [];
   if (opp.other) oppFoot.push({ cells: oppLine('番号なし', opp.other), cls: 'sub' });
   oppFoot.push({ cells: oppLine('合計', opp.total), cls: 'total' });
@@ -171,9 +185,10 @@ export function boxSection(game, events) {
       showPm ? h('p', { class: 'muted small' }, `${showTime ? '出場時間は試合時計の残り時間から数えています（時計を止め忘れた時間も入ります）。' : ''}+/- はその選手がコートにいる間の得点 − 失点です。`) : null),
     h('section', { class: 'card' },
       h('h2', null, '相手チーム'),
-      table(oppHead, oppRows.length ? oppRows : [{ cells: ['記録なし', '', '', '', '', '', ''] }], { className: 'box opp', foot: oppFoot }),
+      table(oppHead, oppRows.length ? oppRows : [{ cells: ['記録なし', ...oppHead.slice(1).map(() => '')] }], { className: 'box opp', foot: oppFoot }),
       h('p', { class: 'team-line' },
-        `チーム：FT ${ma(t.ftm, t.fta)}（${pctText(t.ftm, t.fta)}）　OR ${t.oreb}　DR ${t.dreb}　ターンオーバー ${t.to}`)));
+        `チーム：FT ${ma(t.ftm, t.fta)}（${pctText(t.ftm, t.fta)}）　OR ${t.oreb}　DR ${t.dreb}　ターンオーバー ${t.to}`),
+      oppPm ? h('p', { class: 'muted small' }, `${oppTime ? '出場時間は試合時計の残り時間から数えています。' : ''}+/- はその選手がコートにいる間の相手チームの得点 − 自チームの得点です。`) : null));
 }
 
 // ---- チーム指標・守備隊形別 ----

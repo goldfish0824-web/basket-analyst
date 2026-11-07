@@ -4,7 +4,7 @@ import {
   login, setupAdmin, logout, syncNow, onSyncStatus, statusText, isLoggedIn, errorText,
   changePassword, listUsers, createUser, updateUser, deleteUser,
 } from '../sync.js';
-import { workerBase } from '../sync-core.js';
+import { workerBase, extractWorkerUrl, connectMessage, connectHost } from '../sync-core.js';
 
 const ROLE_LABEL = { admin: '管理者', staff: 'スタッフ', student: '生徒' };
 
@@ -29,7 +29,19 @@ export function accountCard(app) {
 
   // ---- ログインしていないとき ----
   function loggedOutView() {
-    const url = input({ type: 'url', inputmode: 'url', value: app.settings.workerUrl || '', placeholder: 'https://（Worker の URL）', 'aria-label': '共有の Worker の URL' });
+    const url = input({ type: 'text', inputmode: 'url', value: app.settings.workerUrl || '', placeholder: 'https:// から始まる URL（送ってもらった文をそのまま貼り付けてもよい）', 'aria-label': '共有の Worker の URL' });
+    // この端末に接続先が保存してあれば、ID とパスワードだけでログインする（接続先の欄は「変える」で出す）
+    const known = workerBase(app.settings.workerUrl);
+    let editing = !known;
+    const urlBox = h('div', { class: 'connect-box' });
+    const drawUrl = () => {
+      replace(urlBox, editing
+        ? field('接続先（Worker の URL）', url, '初めての端末だけ入れます。ログインしている端末の「ほかの端末でログインするとき」から送ったメッセージを、そのまま貼り付けてもかまいません。')
+        : h('div', { class: 'connect-known' },
+          h('span', null, icon('check'), `接続先：${connectHost(known)}（この端末に保存ずみ）`),
+          h('button', { class: 'btn small', type: 'button', onclick: () => { editing = true; drawUrl(); url.focus(); } }, '変える')));
+    };
+    drawUrl();
     const id = input({ type: 'text', placeholder: '例：yamada', 'aria-label': 'ログイン ID' });
     const pw = input({ type: 'password', placeholder: 'パスワード', 'aria-label': 'パスワード' });
     const status = h('p', { class: 'ai-conn-status', 'aria-live': 'polite' });
@@ -38,11 +50,16 @@ export function accountCard(app) {
       status.className = `ai-conn-status ${kind}`;
     };
     const saveUrl = async () => {
-      const v = url.value.trim();
-      if (!workerBase(v)) {
-        say('Worker の URL を https:// から始まる形で入力してください', 'error');
+      const v = editing ? extractWorkerUrl(url.value) : known;
+      if (!v) {
+        say('接続先（Worker の URL）を入れてください。https:// から始まる URL か、送ってもらったメッセージを貼り付けます', 'error');
+        if (!editing) {
+          editing = true;
+          drawUrl();
+        }
         return false;
       }
+      url.value = v;
       if (v !== app.settings.workerUrl) await app.saveSettings({ ...app.settings, workerUrl: v });
       return true;
     };
@@ -100,7 +117,7 @@ export function accountCard(app) {
     return [
       h('h2', null, '記録の共有（ログイン）'),
       h('p', null, 'ログインすると、ノートパソコンや別の iPad でも同じ記録が見られます。記録はこれまでどおりこの端末にも保存するので、電波がなくても記録でき、つながったときに自動で同期します。'),
-      field('Worker の URL', url, 'AI接続と同じ URL です'),
+      urlBox,
       h('div', { class: 'grid-2' }, field('ID', id), field('パスワード', pw)),
       h('div', { class: 'row' }, loginBtn),
       status,
@@ -150,10 +167,48 @@ export function accountCard(app) {
       h('p', { class: 'muted' }, `ID：${u.loginId || ''}`),
       statusEl,
       h('div', { class: 'row' }, syncBtn, outBtn),
+      connectSection(),
       passwordSection(),
       u.role === 'admin' ? usersSection(u) : null,
       h('p', { class: 'field-note' }, '1つの試合は1台で記録してください（ほかの端末からは見るだけ）。2台で同時に記録すると、記録の順番が乱れることがあります。'),
     ];
+  }
+
+  /** ほかの端末でログインするとき：接続先（Worker の URL）をコピー・送信する */
+  function connectSection() {
+    const base = workerBase(app.settings.workerUrl);
+    if (!base) return null;
+    const msg = connectMessage(base);
+    const status = h('p', { class: 'ai-conn-status', 'aria-live': 'polite' });
+    const copyBtn = h('button', { class: 'btn', type: 'button' }, 'コピー');
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(msg);
+        status.textContent = 'コピーしました。ほかの端末のログインの画面で「接続先」に貼り付けてください';
+        status.className = 'ai-conn-status ok';
+      } catch {
+        status.textContent = 'コピーできませんでした。下の URL を長押ししてコピーしてください';
+        status.className = 'ai-conn-status error';
+      }
+    });
+    const shareBtn = typeof navigator !== 'undefined' && navigator.share
+      ? h('button', {
+        class: 'btn', type: 'button',
+        onclick: async () => {
+          try {
+            await navigator.share({ title: 'BasketBall Analyst の接続先', text: msg });
+          } catch {
+            // 送るのをやめたときは何もしない
+          }
+        },
+      }, icon('share'), '送る（AirDrop・メッセージ・メール）')
+      : null;
+    return h('details', { class: 'account-sub' },
+      h('summary', null, 'ほかの端末でログインするとき（接続先を送る）'),
+      h('p', { class: 'field-note' }, 'ほかの端末では、この接続先を一度だけ入れれば、次からは ID とパスワードだけでログインできます。iPad・iPhone は、ホーム画面に追加したアプリと Safari で保存が別なので、ホーム画面のアプリでも一度入れてください。スマートフォンのメモに残しておくと安心です。'),
+      h('p', { class: 'connect-url' }, base),
+      h('div', { class: 'row' }, copyBtn, shareBtn),
+      status);
   }
 
   function passwordSection() {

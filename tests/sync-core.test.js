@@ -93,3 +93,22 @@ test('エラーの文言', () => {
   assert.equal(syncErrorText('http', 500), 'Worker でエラーが起きました（500）');
   assert.equal(syncErrorText('???'), '通信できません');
 });
+
+test('接続先：貼り付けた文から URL を取り出す、送るメッセージ、見出し', async () => {
+  const { extractWorkerUrl, connectMessage, connectHost } = await import('../js/sync-core.js');
+  const url = 'https://basket.example.workers.dev';
+  assert.equal(extractWorkerUrl(url), url);
+  assert.equal(extractWorkerUrl(`  ${url}/  `), url);
+  assert.equal(extractWorkerUrl(`${url}/basket/insight`), url);
+  const msg = connectMessage(url);
+  assert.match(msg, /接続先/);
+  assert.equal(extractWorkerUrl(msg), url, 'メッセージをまるごと貼っても取り出せる');
+  assert.equal(extractWorkerUrl(`接続先は「${url}」です。`), url);
+  assert.equal(extractWorkerUrl(`see ${url}.`), url);
+  assert.equal(extractWorkerUrl('http://evil.example.com'), null, 'https でないものは使わない');
+  assert.equal(extractWorkerUrl('URLがありません'), null);
+  assert.equal(extractWorkerUrl(''), null);
+  assert.equal(connectMessage('not a url'), '');
+  assert.equal(connectHost(url), 'basket.example.workers.dev');
+  assert.equal(connectHost(''), '');
+});

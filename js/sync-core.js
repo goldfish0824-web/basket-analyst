@@ -167,3 +167,34 @@ export function syncErrorText(reason, status) {
   const base = SYNC_ERROR_TEXT[reason] || '通信できません';
   return reason === 'http' && status ? `${base}（${status}）` : base;
 }
+
+/**
+ * 貼り付けた文から Worker の URL を取り出す（URL だけでも、「接続先」のメッセージをまるごと貼ってもよい）。なければ null。
+ * URL はリポジトリに書かないので、ほかの端末へはメッセージで送って貼り付けてもらう。
+ */
+export function extractWorkerUrl(text) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+  const direct = workerBase(s);
+  if (direct) return direct;
+  const m = s.match(/https?:\/\/[^\s"'<>（）「」、。]+/);
+  return m ? workerBase(m[0].replace(/[).,;:!?]+$/, '')) : null;
+}
+
+/** ほかの端末に送る「接続先」のメッセージ */
+export function connectMessage(url) {
+  const base = workerBase(url);
+  if (!base) return '';
+  return `BasketBall Analyst の接続先です。ログインの画面の「接続先」に、このメッセージをそのまま貼り付けてください。\n${base}`;
+}
+
+/** 「xxx.workers.dev」のような、接続先の見出し */
+export function connectHost(url) {
+  const base = workerBase(url);
+  if (!base) return '';
+  try {
+    return new URL(base).host;
+  } catch {
+    return '';
+  }
+}

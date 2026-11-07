@@ -8,6 +8,7 @@ import { insightEndpoint, testConnection, reasonText } from '../ai.js';
 import { CHECK_METRICS, CHECK_EXAMPLES, DEFAULT_REWIND_SEC, targetText, parseBulkItems } from '../review.js';
 import { CLOCK_MODES, defaultClockRule } from '../clock.js';
 import { AI_EXCLUDE_ITEMS } from '../insights.js';
+import { extractWorkerUrl } from '../sync-core.js';
 import {
   installHint, exportAll, importBackup, createDemoGame, rosterEditor, lastBackupText,
 } from './shared.js';
@@ -69,7 +70,10 @@ export async function renderSettings(root, params, app) {
   });
   const aiStatus = h('p', { class: 'ai-conn-status', 'aria-live': 'polite' });
   const readAi = () => {
-    const url = workerUrl.value.trim();
+    // 「接続先」のメッセージをまるごと貼り付けても URL だけ取り出す
+    const raw = workerUrl.value.trim();
+    const url = raw ? extractWorkerUrl(raw) || raw : '';
+    if (url !== raw) workerUrl.value = url;
     if (url && !insightEndpoint(url)) {
       aiStatus.textContent = 'URL は https:// から始まる形で入力してください';
       aiStatus.className = 'ai-conn-status error';

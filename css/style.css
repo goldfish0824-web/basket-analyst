@@ -410,6 +410,10 @@ select {
 input[type="checkbox"] { accent-color: var(--accent); }
 .check-line { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 6px 0 10px; font-weight: 700; cursor: pointer; }
 .check-line input { width: 22px; height: 22px; flex: 0 0 auto; }
+.connect-known { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface-2); margin-bottom: 10px; font-weight: 700; }
+.connect-known span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.connect-known .icon { color: var(--good); flex: 0 0 auto; }
+.connect-url { font-family: var(--num); font-size: 14px; padding: 8px 10px; border-radius: 10px; background: var(--input-bg); border: 1px solid var(--line); overflow-wrap: anywhere; -webkit-user-select: all; user-select: all; }
 .field.inline select { width: auto; flex: 1; }
 .form-error { color: var(--crit); font-weight: 700; min-height: 1.5em; }
 .form-actions { display: flex; justify-content: flex-end; }

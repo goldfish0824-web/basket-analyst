@@ -106,6 +106,14 @@ export async function renderRecord(root, params, app) {
   const TEAM_TITLE = (team) => (team === 'us' ? '自チーム' : '相手');
 
   function dispatch(cmd) {
+    // プレーの記録はクォーター中だけ（試合開始前・クォーター間は画面でも押せないが、念のため処理でも止める）
+    const qs = quarterState(events);
+    if (qs.phase !== 'live') {
+      input = initialInput();
+      toast(qs.phase === 'pre' ? '「1Q 開始」を押してから記録してください' : `「${quarterLabel(qs.next)} 開始」を押してから記録してください`, { kind: 'error' });
+      update();
+      return;
+    }
     const r = step(input, cmd, ctx);
     input = r.state;
     if (r.ops.length === 0 && cmd.type !== 'tag') lastMessage = '';
@@ -840,7 +848,7 @@ export async function renderRecord(root, params, app) {
       pickOpp ? starterPicker('opp') : null,
       qs.phase === 'pre'
         ? h('p', { class: 'muted' }, `「自DF」「相手DF」を確かめて、試合が始まったら開始をタップ（時計 ${len} から動きます）。`)
-        : h('p', { class: 'muted' }, `下のログをタップすると記録を修正できます。開始をタップすると時計が ${len} から動きます。`),
+        : h('p', { class: 'muted' }, `下のログをタップすると記録を修正できます。記録し忘れがあれば、上の「取り消し」でクォーター終了を取り消して記録できます。開始をタップすると時計が ${len} から動きます。`),
       h('button', { class: 'btn primary huge', type: 'button', onclick: () => startQuarter(qs.next) }, `${quarterLabel(qs.next)} 開始`),
       isEndOfRegulation ? h('p', { class: 'muted' }, '延長がない場合は、ここで記録は終わりです。') : null,
       h('div', { class: 'row center' },

@@ -87,3 +87,63 @@ export function parseClock(text) {
 function round1(v) {
   return Math.round(v * 10) / 10;
 }
+
+// ---- 時計の進め方（正式／ランニング） ----
+// 正式：ファウル・タイムアウトを記録したら止める。ランニング：タイムアウトだけ止める。ランニング（止めない）：自動では止めない。
+// ランニングでも「4Q・延長の残り2分は正式」にできる（その間はファウル・タイムアウトで止める）。
+
+export const CLOCK_MODES = [
+  { key: 'official', label: '正式', note: 'ファウル・タイムアウトで止める' },
+  { key: 'running_to', label: 'ランニング', note: 'タイムアウトだけ止める' },
+  { key: 'running', label: 'ランニング', note: '自動では止めない' },
+];
+const MODE_KEYS = new Set(CLOCK_MODES.map((m) => m.key));
+/** 「残り2分は正式」の2分（秒） */
+export const LAST_MINUTES_SEC = 120;
+
+/** 時計の進め方を整える（知らない値は正式） */
+export function normalizeClockRule(rule) {
+  const mode = rule && MODE_KEYS.has(rule.mode) ? rule.mode : 'official';
+  return { mode, last2Official: !(rule && rule.last2Official === false) };
+}
+
+/** 新しい試合の時計の進め方（設定から。前の設定「ファウル・タイムアウトで止める」を切っていたら、止めないランニング） */
+export function defaultClockRule(settings = {}) {
+  if (settings.clockMode) return normalizeClockRule({ mode: settings.clockMode, last2Official: settings.clockLast2Official });
+  if (settings.clockAutoStop === false) return { mode: 'running', last2Official: false };
+  return { mode: 'official', last2Official: true };
+}
+
+/** その試合の時計の進め方（試合に保存したもの。なければ設定から） */
+export function clockRuleOf(game, settings) {
+  return game && game.clockRule ? normalizeClockRule(game.clockRule) : defaultClockRule(settings);
+}
+
+/** いま正式の時間か（正式の試合、またはランニングの 4Q・延長の残り2分） */
+export function isOfficialTime(rule, quarter, remaining, regular = 4) {
+  const r = normalizeClockRule(rule);
+  if (r.mode === 'official') return true;
+  return r.last2Official && quarter >= regular && remaining != null && remaining <= LAST_MINUTES_SEC;
+}
+
+/** このプレーを記録したら時計を止めるか */
+export function shouldAutoStop(type, rule, quarter, remaining, regular = 4) {
+  if (type !== 'foul' && type !== 'timeout') return false;
+  if (isOfficialTime(rule, quarter, remaining, regular)) return true;
+  return type === 'timeout' && normalizeClockRule(rule).mode === 'running_to';
+}
+
+/** ランニングの試合で、いま「残り2分（正式）」に入ったか（前回の残り prev → いまの残り now） */
+export function enteredLastMinutes(rule, quarter, prev, now, regular = 4) {
+  const r = normalizeClockRule(rule);
+  return r.mode !== 'official' && r.last2Official && quarter >= regular && prev != null && now != null
+    && prev > LAST_MINUTES_SEC && now <= LAST_MINUTES_SEC;
+}
+
+/** 「ランニング（タイムアウトだけ止める）・4Qと延長の残り2分は正式」のような説明 */
+export function clockRuleText(rule) {
+  const r = normalizeClockRule(rule);
+  const m = CLOCK_MODES.find((x) => x.key === r.mode);
+  if (r.mode === 'official') return `${m.label}（${m.note}）`;
+  return `${m.label}（${m.note}）${r.last2Official ? '・4Qと延長の残り2分は正式' : ''}`;
+}

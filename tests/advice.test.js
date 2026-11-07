@@ -107,3 +107,16 @@ test('5ファウルは「退場」と書く（推測で「ベンチ待機の可�
   assert.equal(localLine(c), '相手#10、5ファウルで退場（4Q終了時）');
   assert.match(evidenceText(c), /個人ファウル 5（退場）/);
 });
+
+test('AIに伝えない項目：守備隊形を送らず、質問の前に「触れない」を付ける', async () => {
+  const { buildAdvicePayload, MAX_QUESTION } = await import('../js/advice.js');
+  const { events } = generateDemo({ seed: 1 });
+  const p = buildAdvicePayload({ events, quarter: 2, question: 'どう守る？', exclude: { rebounds: true, oppDefense: true } });
+  assert.equal(p.defenses.opp, null);
+  assert.ok(p.defenses.us);
+  assert.match(p.question, /^（リバウンド・相手の守備隊形は記録していないので触れないでください）どう守る？$/);
+  const long = buildAdvicePayload({ events, quarter: 2, question: 'あ'.repeat(300), exclude: { rebounds: true } });
+  assert.ok(long.question.length <= MAX_QUESTION);
+  const plain = buildAdvicePayload({ events, quarter: 2, question: 'どう守る？' });
+  assert.equal(plain.question, 'どう守る？');
+});

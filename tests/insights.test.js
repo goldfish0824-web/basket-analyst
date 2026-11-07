@@ -295,3 +295,31 @@ test('ゾーンと左右の呼び方', () => {
   assert.equal(sideOf(7.5), '正面');
   assert.equal(sideOf(12), '右');
 });
+
+test('AIに伝えない項目：リバウンド・相手の守備隊形・自チームの守備隊形に当たる候補を外す', async () => {
+  const { isExcluded, excludedLabels, buildCandidates } = await import('../js/insights.js');
+  const reb = { category: 'rebounds', subject: 'リバウンド' };
+  const usDef = { category: 'us_defense_eff', team: 'us' };
+  const usTo = { category: 'turnovers', team: 'us', by: 'defense', detail: '2-2-1プレスから' };
+  const oppTo = { category: 'turnovers', team: 'opp', by: 'defense', detail: '自チームの2-3ゾーンから' };
+  const tagTo = { category: 'turnovers', team: 'us', by: 'tag', detail: 'パスミス' };
+  const oldUsTo = { category: 'turnovers', team: 'us', detail: '2-2-1プレスから' }; // 保存済みの古い候補（by なし）
+  assert.equal(isExcluded(reb, { rebounds: true }), true);
+  assert.equal(isExcluded(reb, { oppDefense: true }), false);
+  assert.equal(isExcluded(usDef, { oppDefense: true }), true);
+  assert.equal(isExcluded(usTo, { oppDefense: true }), true);
+  assert.equal(isExcluded(oldUsTo, { oppDefense: true }), true);
+  assert.equal(isExcluded(usTo, { usDefense: true }), false);
+  assert.equal(isExcluded(oppTo, { usDefense: true }), true);
+  assert.equal(isExcluded(tagTo, { oppDefense: true, usDefense: true, rebounds: true }), false);
+  assert.equal(isExcluded(reb, null), false);
+  assert.deepEqual(excludedLabels({ rebounds: true, oppDefense: true }), ['リバウンド', '相手の守備隊形']);
+  // デモ試合の候補から、指定した種類が消える
+  const { events } = generateDemo({ seed: 1 });
+  const all = buildCandidates(events, { quarter: 4 });
+  const cut = buildCandidates(events, { quarter: 4, exclude: { rebounds: true, oppDefense: true, usDefense: true } });
+  assert.ok(all.some((c) => c.category === 'rebounds' || c.category === 'us_defense_eff'), 'デモにはリバウンド・隊形の候補がある');
+  assert.ok(cut.every((c) => !isExcluded(c, { rebounds: true, oppDefense: true, usDefense: true })));
+  assert.ok(cut.length < all.length);
+  assert.deepEqual(cut.map((c) => c.id), cut.map((_, i) => `c${i + 1}`), 'ID は詰めて振り直す');
+});

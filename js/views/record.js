@@ -14,7 +14,7 @@ import { initialInput, step, hintFor, ACTIONS, US_ONLY } from '../input.js';
 import { createCourt, drawShots, drawPending } from '../court-svg.js';
 import {
   quarterSeconds, newClock, isRunning, remainingAt, startClock, stopClock, setRemaining, adjustClock, settleClock,
-  clockForEvent, formatClock,
+  clockForEvent, formatClock, clockRuleOf, normalizeClockRule, shouldAutoStop, isOfficialTime, enteredLastMinutes, clockRuleText, CLOCK_MODES,
 } from '../clock.js';
 import { onCourt, benchOf, swapPlan, addToRoster, defaultStarters, COURT_SIZE } from '../lineup.js';
 
@@ -26,8 +26,6 @@ const PLAY_BUTTONS = [
 /** アシストを記録しない設定のとき（既定）は「アシスト」ボタンを出さず、「選択を解除」を2マス分にする */
 const playButtons = (settings) => (settings.recordAssists ? PLAY_BUTTONS : PLAY_BUTTONS.filter((k) => k !== 'ast'));
 
-/** 記録したら時計を止めるプレー（設定で切り替え） */
-const CLOCK_STOPS = new Set(['foul', 'timeout']);
 
 export async function renderRecord(root, params, app) {
   const game = await db.getGame(params.gameId);
@@ -60,6 +58,8 @@ export async function renderRecord(root, params, app) {
   // ---- 試合時計 ----
   const clockOpts = () => ({ quarterMin: app.settings.quarterMin, otMin: app.settings.otMin, regular: REGULAR_QUARTERS });
   const clock = () => game.live.clock || null;
+  /** この試合の時計の進め方（1Q 開始のときに設定から試合に写す） */
+  const rule = () => clockRuleOf(game, app.settings);
   function setClock(next) {
     game.live.clock = next;
     saveGame();
@@ -121,7 +121,8 @@ export async function renderRecord(root, params, app) {
       if (op.op === 'add') {
         const e = addEvent(op.draft);
         lastMessage = `記録：${describeEvent(e, ZONE_LABELS)}`;
-        if (CLOCK_STOPS.has(e.type) && app.settings.clockAutoStop !== false && isRunning(clock())) {
+        // 時計の進め方（正式／ランニング、4Q残り2分は正式）に合わせて、ファウル・タイムアウトで止める
+        if (isRunning(clock()) && shouldAutoStop(e.type, rule(), e.quarter, e.clock, REGULAR_QUARTERS)) {
           setClock(stopClock(clock(), Date.now()));
           lastMessage += '（時計を止めました）';
         }
@@ -179,16 +180,24 @@ export async function renderRecord(root, params, app) {
         : h('button', { class: 'btn q-btn primary', type: 'button', onclick: () => startQuarter(qs.next) }, `${quarterLabel(qs.next)} 開始`);
     const qText = qs.phase === 'pre' ? '試合前' : quarterLabel(qs.quarter) + (qs.phase === 'break' ? ' 終了' : '');
     clockShown = !!hasClock;
-    clockText = h('span', { class: 'clock-time' }, hasClock ? formatClock(remainingAt(c, Date.now())) : '--:--');
+    const left = hasClock ? remainingAt(c, Date.now()) : null;
+    clockText = h('span', { class: 'clock-time' }, hasClock ? formatClock(left) : '--:--');
+    const official = isOfficialTime(rule(), qs.quarter, left, REGULAR_QUARTERS);
+    // 押したらすぐ反応するように、指が触れた時点（pointerdown）で切り替える。キーボードの操作（click の detail が 0）も受ける
     const clockBtn = h('button', {
       class: ['clock-btn', running ? 'running' : 'stopped', !hasClock && 'none'], type: 'button',
       disabled: qs.phase !== 'live',
-      onclick: toggleClock,
+      onpointerdown: (ev) => {
+        if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+        ev.preventDefault();
+        toggleClock();
+      },
+      onclick: (ev) => { if (ev.detail === 0) toggleClock(); },
       'aria-label': running ? '時計を止める' : '時計を動かす',
     },
-    h('span', { class: 'clock-q' }, qText),
+    h('span', { class: 'clock-q' }, qText, qs.phase === 'pre' ? null : h('span', { class: ['clock-rule', official ? 'official' : 'running'] }, official ? '正式' : 'ランニング')),
     clockText,
-    h('span', { class: 'clock-state' }, icon(running ? 'pause' : 'play'), running ? '止める' : '動かす'));
+    h('span', { class: 'clock-state' }, icon(running ? 'pause' : 'play'), h('span', { class: 'clock-state-text' }, running ? '止める' : '動かす')));
     replace(top,
       h('button', { class: 'btn menu-btn', type: 'button', onclick: openMenu, 'aria-label': 'メニュー' }, icon('menu')),
       clockBtn,
@@ -203,8 +212,8 @@ export async function renderRecord(root, params, app) {
         h('span', { class: 'sb-name opp' }, game.opponent || '相手')),
       h('div', { class: 'tf' },
         h('span', { class: 'tf-label' }, 'チームファウル'),
-        h('span', { class: ['tf-val', tf.us >= 5 && 'over'] }, `自 ${tf.us}`),
-        h('span', { class: ['tf-val', tf.opp >= 5 && 'over'] }, `相手 ${tf.opp}`)),
+        h('span', { class: ['tf-val', tf.us >= 5 && 'over', tf.us === 4 && 'four'] }, `自 ${tf.us}`),
+        h('span', { class: ['tf-val', tf.opp >= 5 && 'over', tf.opp === 4 && 'four'] }, `相手 ${tf.opp}`)),
       dfButton('us'),
       dfButton('opp'),
       h('button', { class: 'btn undo-btn', type: 'button', onclick: undo, disabled: events.length === 0 }, icon('undo'), '取り消し'),
@@ -212,10 +221,19 @@ export async function renderRecord(root, params, app) {
   }
 
   /** 時計の表示だけを更新する（0 になったら止めて保存） */
+  let prevLeft = null;
   function tick() {
     const c = clock();
     if (!c || !clockText || !clockShown) return;
     const now = Date.now();
+    const left = remainingAt(c, now);
+    const prev = prevLeft;
+    prevLeft = left;
+    if (enteredLastMinutes(rule(), c.quarter, prev, left, REGULAR_QUARTERS)) {
+      toast(`${quarterLabel(c.quarter)} 残り2分：ここから正式の時間です（ファウル・タイムアウトで時計が止まります）`, { ms: 5000 });
+      renderTop();
+      return;
+    }
     const settled = settleClock(c, now);
     if (settled !== c) {
       setClock(settled);
@@ -293,7 +311,10 @@ export async function renderRecord(root, params, app) {
         display,
         h('div', { class: 'clock-bumps' }, [-60, -10, -1, 1, 10, 60].map(bump)),
         h('p', { class: 'muted small' }, '数字で入れるときは「532」で 5:32 になります。'),
-        h('div', { class: 'keypad-grid' }, ['1', '2', '3', '4', '5', '6', '7', '8', '9', '←', '0'].map(key))),
+        h('div', { class: 'keypad-grid' }, ['1', '2', '3', '4', '5', '6', '7', '8', '9', '←', '0'].map(key)),
+        h('div', { class: 'rule-line' },
+          h('span', null, `時計の進め方：${clockRuleText(rule())}`),
+          h('button', { class: 'btn small', type: 'button', onclick: () => { close(); openClockRule(); } }, '変える'))),
       actions: [
         { label: '閉じる' },
         {
@@ -316,6 +337,45 @@ export async function renderRecord(root, params, app) {
       onClose: () => clearInterval(live),
     });
     return close;
+  }
+
+  /** 時計の進め方（この試合）：正式／ランニング、4Q・延長の残り2分は正式 */
+  function openClockRule() {
+    let r = rule();
+    const body = h('div', { class: 'clock-rule-modal' });
+    function draw() {
+      replace(body,
+        h('div', { class: 'rule-options' }, CLOCK_MODES.map((m) => h('button', {
+          class: ['btn rule-option', r.mode === m.key && 'on'], type: 'button', 'aria-pressed': String(r.mode === m.key),
+          onclick: () => { r = { ...r, mode: m.key }; draw(); },
+        }, h('strong', null, m.label), h('span', null, m.note)))),
+        r.mode !== 'official'
+          ? h('label', { class: 'check-line' },
+            h('input', { type: 'checkbox', checked: r.last2Official, onchange: (ev) => { r = { ...r, last2Official: ev.target.checked }; draw(); } }),
+            h('span', null, '4Qと延長の残り2分は正式（ファウル・タイムアウトで止める）'))
+          : null,
+        h('p', { class: 'muted small' }, 'どの進め方でも、笛で止まったときは時計をタップして止め、再開したらもう一度タップします。自動で止まるのは、ファウル・タイムアウトを記録したときだけです。'),
+        h('p', { class: 'muted small' }, 'この試合だけの設定です。新しい試合の初期値は「設定」→「試合時計」で決めます。'));
+    }
+    draw();
+    modal({
+      title: '時計の進め方（この試合）',
+      body,
+      actions: [
+        { label: 'やめる' },
+        {
+          label: '決定',
+          kind: 'primary',
+          onClick: () => {
+            game.clockRule = normalizeClockRule(r);
+            saveGame();
+            toast(`時計：${clockRuleText(game.clockRule)}`);
+            update();
+          },
+        },
+      ],
+      wide: true,
+    });
   }
 
   // ---- コート ----
@@ -377,13 +437,15 @@ export async function renderRecord(root, params, app) {
   /** 1チーム分の選手ボタン（コートの5人を記録していれば、上の段にコート・下の段にベンチ） */
   function sideBlock(team) {
     const pf = fouls();
-    const on = courtOf(team);
+    // コート・ベンチとも背番号の若い順に並べる（交代しても自動で並び直る）
+    const onRaw = courtOf(team);
+    const on = onRaw ? sortNumbers(onRaw) : null;
     const list = teamList(team);
     const title = team === 'us' ? '自チーム' : `相手${game.opponent ? `（${game.opponent}）` : ''}`;
     const subBtn = smallButton(team, '交代', () => openSubModal(team), 'sub-btn');
     const addBtn = team === 'us' ? smallButton(team, '＋選手', addOurPlayer, 'add') : smallButton(team, '＋番号', () => addOppNumber(), 'add');
     if (on) {
-      const bench = benchOf(list, on);
+      const bench = sortNumbers(benchOf(list, on));
       return [
         h('div', { class: 'side-label' }, h('span', null, `${title}　上：コート／下：ベンチ`), h('span', { class: 'side-hint' }, 'ベンチ ⇄ コートへドラッグで交代')),
         h('div', { class: 'oncourt' },
@@ -632,7 +694,8 @@ export async function renderRecord(root, params, app) {
   function followRow() {
     const a = input.after;
     if (!a) return null;
-    const on = court5();
+    const onRaw = court5();
+    const on = onRaw ? sortNumbers(onRaw) : null;
     const pf = fouls();
     if (a.kind === 'fg' && a.made && a.team === 'us') {
       if (!on || !app.settings.recordAssists) return null;
@@ -847,7 +910,14 @@ export async function renderRecord(root, params, app) {
       pickUs ? starterPicker('us') : null,
       pickOpp ? starterPicker('opp') : null,
       qs.phase === 'pre'
-        ? h('p', { class: 'muted' }, `「自DF」「相手DF」を確かめて、試合が始まったら開始をタップ（時計 ${len} から動きます）。`)
+        ? h('div', { class: 'rule-line' },
+          h('span', null, `時計：${clockRuleText(rule())}`),
+          h('button', { class: 'btn small', type: 'button', onclick: openClockRule }, '変える'))
+        : null,
+      qs.phase === 'pre'
+        ? h('p', { class: 'muted' }, (pickUs || pickOpp)
+          ? `「自DF」「相手DF」を確かめて、試合が始まったら開始（時計 ${len} から）。`
+          : `「自DF」「相手DF」を確かめて、試合が始まったら開始をタップ（時計 ${len} から動きます）。`)
         : h('p', { class: 'muted' }, `下のログをタップすると記録を修正できます。記録し忘れがあれば、上の「取り消し」でクォーター終了を取り消して記録できます。開始をタップすると時計が ${len} から動きます。`),
       h('button', { class: 'btn primary huge', type: 'button', onclick: () => startQuarter(qs.next) }, `${quarterLabel(qs.next)} 開始`),
       isEndOfRegulation ? h('p', { class: 'muted' }, '延長がない場合は、ここで記録は終わりです。') : null,
@@ -885,6 +955,7 @@ export async function renderRecord(root, params, app) {
     // 時計をクォーターの長さに戻して動かす（試合が始まった瞬間に開始を押す）
     const now = Date.now();
     game.live.clock = startClock(newClock(q, quarterSeconds(q, clockOpts())), now);
+    if (!game.clockRule) game.clockRule = rule();
     saveGame();
     addEvent({ type: 'q_start', team: null, quarter: q });
     setMessage(`${quarterLabel(q)} 開始`);
@@ -1000,6 +1071,7 @@ export async function renderRecord(root, params, app) {
             `${quarterLabel(qs.quarter)}のまとめ・AI特筆データ${qs.phase === 'live' ? '（ここまで）' : ''}`)
           : null,
         h('a', { class: 'btn', href: `#/game/${game.id}/summary`, onclick: () => close() }, '集計を見る'),
+        h('button', { class: 'btn', type: 'button', onclick: () => { close(); openClockRule(); } }, `時計の進め方（いま：${normalizeClockRule(rule()).mode === 'official' ? '正式' : 'ランニング'}）`),
         h('button', { class: 'btn', type: 'button', onclick: () => { close(); openSubModal('us'); } }, courtOf('us') ? '選手交代（自チーム）' : 'コートにいる5人を選ぶ（自チーム）'),
         h('button', { class: 'btn', type: 'button', onclick: () => { close(); openSubModal('opp'); } }, courtOf('opp') ? '選手交代（相手）' : 'コートにいる5人を選ぶ（相手）'),
         h('button', { class: 'btn', type: 'button', onclick: () => { close(); addOurPlayer(); } }, '自チームの選手を追加'),

@@ -4,6 +4,7 @@
 import { scoreOf, scoreByQuarter, teamBox, teamIndicators, byDefense, filterShots, zoneStats } from './stats.js';
 import { evaluateTarget, isActiveItem } from './review.js';
 import { quarterLabel } from './model.js';
+import { isExcluded, excludedLabels } from './insights.js';
 
 export const REPORT_KIND = 'game_report';
 export const MAX_COACH_NOTE = 400;
@@ -12,15 +13,23 @@ const MAX_ITEMS = 4;
 const ma = (m, a) => [m, a];
 const round2 = (v) => (v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100);
 
-function lineOf(r, withAst = true) {
+function lineOf(r, withAst = true, withReb = true) {
   const line = {
     pts: r.pts, fg: ma(r.fgm, r.fga), tp: ma(r.tpm, r.tpa), ft: ma(r.ftm, r.fta),
     or: r.oreb, dr: r.dreb, ast: r.ast, stl: r.stl, to: r.to, pf: r.pf,
   };
   // アシストを記録していない試合は 0 本と読まれないように送らない
   if (!withAst) delete line.ast;
+  // 「AIに伝えない」にしたリバウンドは送らない
+  if (!withReb) {
+    delete line.or;
+    delete line.dr;
+  }
   return line;
 }
+
+/** リバウンドに関わる目標（チェック項目の自動判定） */
+const REBOUND_TARGETS = new Set(['us_or', 'opp_or', 'us_dr', 'opp_dr', 'us_or_pct']);
 
 function active(r) {
   return r.pts || r.fga || r.fta || r.oreb || r.dreb || r.ast || r.stl || r.blk || r.to || r.pf;
@@ -34,7 +43,9 @@ export function cleanNote(text) {
 /**
  * Worker に送る形。game は試合、defenses は守備隊形の表示順、coachNote は「AIに伝えたいこと」。
  */
-export function buildReportPayload({ game, events, defenses = [], coachNote = '' }) {
+export function buildReportPayload({ game, events, defenses = [], coachNote = '', exclude = null }) {
+  const ex = exclude || {};
+  const withReb = !ex.rebounds;
   const s = scoreOf(events);
   const byQ = scoreByQuarter(events);
   const ind = teamIndicators(events);
@@ -60,10 +71,13 @@ export function buildReportPayload({ game, events, defenses = [], coachNote = ''
     byQuarter.set(r.quarter, r);
   }
   for (const [q, r] of [...byQuarter.entries()].sort((a, b) => a[0] - b[0])) {
-    for (const it of r.items || []) insights.push({ quarter: quarterLabel(q), line: String(it.line || '').slice(0, 80) });
+    for (const it of r.items || []) {
+      if (isExcluded(it.candidate, ex)) continue;
+      insights.push({ quarter: quarterLabel(q), line: String(it.line || '').slice(0, 80) });
+    }
   }
   const checklist = (game.checklist || []).filter(isActiveItem).map((it) => {
-    const auto = it.target ? evaluateTarget(it.target, events) : null;
+    const auto = it.target && !(ex.rebounds && REBOUND_TARGETS.has(it.target.key)) ? evaluateTarget(it.target, events) : null;
     const out = { label: String(it.label || '').slice(0, 60), mark: it.mark || null };
     if (auto && auto.text) out.auto = auto.text;
     return out;
@@ -71,24 +85,37 @@ export function buildReportPayload({ game, events, defenses = [], coachNote = ''
   return {
     kind: REPORT_KIND,
     score: { us: s.us, opp: s.opp, byQuarter: { us: byQ.us, opp: byQ.opp } },
-    us: lineOf(usBox.total, withAst),
-    opp: lineOf(oppBox.total, withAst),
+    us: lineOf(usBox.total, withAst, withReb),
+    opp: lineOf(oppBox.total, withAst, withReb),
     indicators: {
-      us: { ppp: round2(ind.us.ppp), orPct: round2(ind.us.orPct), secondChancePts: ind.us.secondChancePts, fastBreakPts: ind.us.fastBreakPts },
-      opp: { ppp: round2(ind.opp.ppp), orPct: round2(ind.opp.orPct), secondChancePts: ind.opp.secondChancePts, fastBreakPts: ind.opp.fastBreakPts },
+      us: indicatorsOf(ind.us, withReb),
+      opp: indicatorsOf(ind.opp, withReb),
     },
-    players: usBox.rows.filter(active).map((r) => ({ no: `#${r.number}`, ...lineOf(r, withAst) })),
+    players: usBox.rows.filter(active).map((r) => ({ no: `#${r.number}`, ...lineOf(r, withAst, withReb) })),
     oppScorers: oppBox.rows.filter((r) => r.pts >= 6).sort((a, b) => b.pts - a.pts).slice(0, 5)
       .map((r) => ({ no: `#${r.number}`, pts: r.pts, fg: ma(r.fgm, r.fga), tp: ma(r.tpm, r.tpa) })),
-    byDefense: defList('us'),
-    oppByDefense: defList('opp'),
+    // 自チームの攻撃（相手の守備隊形別）／相手の攻撃（自チームの守備隊形別）。「AIに伝えない」にしたら空にする
+    byDefense: ex.oppDefense ? [] : defList('us'),
+    oppByDefense: ex.usDefense ? [] : defList('opp'),
     zones: zoneList('us'),
     oppZones: zoneList('opp'),
     turnoverTags: Object.entries(tags).map(([tag, n]) => ({ tag, n })).sort((a, b) => b.n - a.n),
     insights,
     checklist,
-    coachNote: cleanNote(coachNote),
+    coachNote: cleanNote(excludeNote(ex) + cleanNote(coachNote)),
   };
+}
+
+function indicatorsOf(x, withReb) {
+  const out = { ppp: round2(x.ppp), orPct: round2(x.orPct), secondChancePts: x.secondChancePts, fastBreakPts: x.fastBreakPts };
+  if (!withReb) delete out.orPct;
+  return out;
+}
+
+/** 伝えない項目を、コーチのメモの先頭に書き添える（Worker を変えずに AI に伝えるため） */
+function excludeNote(ex) {
+  const labels = excludedLabels(ex);
+  return labels.length ? `（${labels.join('・')}は記録が不完全なので、良かった点・課題・練習の例・次に見る数字のどれでも触れないでください）\n` : '';
 }
 
 function text(v, max) {

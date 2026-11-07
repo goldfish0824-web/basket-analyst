@@ -369,7 +369,7 @@ export async function renderReview(root, params, app) {
       tick();
       const timer = setInterval(tick, 1000);
       game.reportNote = cleanNote(note.value);
-      const payload = buildReportPayload({ game, events, defenses: app.settings.defenses || [], coachNote: game.reportNote });
+      const payload = buildReportPayload({ game, events, defenses: app.settings.defenses || [], coachNote: game.reportNote, exclude: app.settings.aiExclude });
       const online = typeof navigator === 'undefined' || navigator.onLine !== false;
       const r = await requestReport(app.settings, payload, { online });
       clearInterval(timer);

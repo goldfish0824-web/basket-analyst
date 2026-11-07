@@ -38,6 +38,9 @@
   --warn: #fab219;
   --crit: #e5484d;
   --out: #4d576b;
+  /* シュートチャート：成功の○は緑、失敗の×は赤（チームの色とは別） */
+  --shot-made: #2fd07f;
+  --shot-miss: #ff5d62;
 
   --court-floor: #12203a;
   --court-paint: #182b4c;
@@ -92,6 +95,8 @@
   --good-strong: #087a08;
   --miss: #3d4554;
   --out: #9aa1ae;
+  --shot-made: #0a8f3a;
+  --shot-miss: #d6303a;
   --court-floor: #fcfcfb;
   --court-paint: #f0efec;
   --court-line: #898781;
@@ -482,7 +487,7 @@ body[data-view="record"] { overflow: hidden; overscroll-behavior: none; position
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-rows: 64px minmax(0, 1fr);
+  grid-template-rows: 72px minmax(0, 1fr);
   grid-template-columns: minmax(0, 1fr) 452px;
   background: var(--bg-image), var(--bg);
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
@@ -534,6 +539,10 @@ body[data-view="record"] { overflow: hidden; overscroll-behavior: none; position
 .tf-label { grid-column: 1 / -1; font-size: 10px; color: var(--muted); text-align: center; line-height: 1.3; font-weight: 700; letter-spacing: .08em; }
 .tf-val { font-size: 14px; font-weight: 700; padding: 1px 8px; border-radius: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; background: var(--surface-3); border: 1px solid var(--line); }
 .tf-val.over { background: var(--crit); border-color: transparent; color: #fff; box-shadow: 0 0 12px rgba(229, 72, 77, .5); }
+/* チームファウル4：あと1つでフリースロー。黄色で目立たせ、最初の数回だけ点滅 */
+.tf-val.four { background: var(--warn); border-color: transparent; color: #111; font-size: 16px; box-shadow: 0 0 0 2px var(--warn), 0 0 16px rgba(250, 178, 25, .7); animation: tf-four 1s ease-in-out 4; }
+@keyframes tf-four { 50% { box-shadow: 0 0 0 4px var(--warn), 0 0 26px rgba(250, 178, 25, .95); transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .tf-val.four { animation: none; } }
 
 .df-btn {
   display: flex;
@@ -772,9 +781,13 @@ p.ctx-done { margin: 0; text-align: center; font-size: 17px; }
   grid-template-columns: auto auto;
   grid-template-rows: auto auto;
   align-items: center;
-  column-gap: 8px;
-  min-height: 48px;
-  padding: 2px 10px;
+  column-gap: 10px;
+  min-height: 60px;
+  min-width: 176px;
+  padding: 2px 12px;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
   border-radius: 12px;
   border: 1px solid var(--line-2);
   background: var(--surface-3);
@@ -783,9 +796,21 @@ p.ctx-done { margin: 0; text-align: center; font-size: 17px; }
   text-align: left;
 }
 .clock-q { grid-column: 1; grid-row: 1; font-size: 11px; font-weight: 800; color: var(--ink-2); letter-spacing: .04em; white-space: nowrap; line-height: 1.2; }
-.clock-time { grid-column: 1; grid-row: 2; font-family: var(--num); font-size: 25px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; min-width: 2.9em; }
-.clock-state { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: center; font-size: 10px; font-weight: 800; gap: 1px; white-space: nowrap; }
-.clock-state .icon { width: 20px; height: 20px; }
+.clock-time { grid-column: 1; grid-row: 2; font-family: var(--num); font-size: 31px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; min-width: 2.9em; }
+.clock-state { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: center; font-size: 11px; font-weight: 800; gap: 2px; white-space: nowrap; }
+.clock-state .icon { width: 28px; height: 28px; }
+.clock-btn:active:not(:disabled) { transform: translateY(1px); filter: brightness(1.15); }
+.clock-rule { margin-left: 6px; padding: 0 5px; border-radius: 5px; font-size: 10px; font-weight: 800; letter-spacing: 0; }
+.clock-rule.running { background: var(--surface-4); color: var(--ink-2); }
+.clock-rule.official { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--ink); }
+.rule-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; font-size: 13px; font-weight: 700; color: var(--ink-2); text-align: left; }
+.rule-line .btn { flex: 0 0 auto; }
+.rule-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.rule-option { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 64px; white-space: normal; text-align: center; }
+.rule-option strong { font-size: 16px; }
+.rule-option span { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.rule-option.on { background: var(--accent); border-color: transparent; color: #fff; box-shadow: 0 0 14px var(--accent-glow); }
+.rule-option.on span { color: rgba(255, 255, 255, .9); }
 .clock-btn.running { border-color: color-mix(in srgb, var(--good) 75%, transparent); box-shadow: 0 0 0 1px rgba(31, 191, 116, .25), 0 0 16px rgba(31, 191, 116, .2); }
 .clock-btn.running .clock-state { color: var(--good); }
 .clock-btn.stopped:not(.none) { border-color: color-mix(in srgb, var(--warn) 75%, transparent); background: color-mix(in srgb, var(--warn) 13%, var(--surface-3)); }
@@ -816,9 +841,9 @@ p.ctx-done { margin: 0; text-align: center; font-size: 17px; }
 
 /* 交代・先発の選択 */
 .phase-card { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
-.phase-card.with-starters { padding: 14px 18px; gap: 8px; width: min(600px, 100%); }
+.phase-card.with-starters { padding: 12px 18px; gap: 5px; width: min(600px, 100%); }
 .starter-pick { width: 100%; text-align: left; }
-.starter-pick + .starter-pick { padding-top: 8px; border-top: 1px dashed var(--line-2); }
+.starter-pick + .starter-pick { padding-top: 6px; border-top: 1px dashed var(--line-2); }
 .starter-title { margin: 0 0 5px; font-weight: 800; font-size: 14px; padding-left: 7px; border-left: 3px solid var(--us); }
 .starter-pick.opp .starter-title { border-left-color: var(--opp); }
 .starter-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 5px; }
@@ -916,8 +941,8 @@ p.ctx-done { margin: 0; text-align: center; font-size: 17px; }
   .rec-top .q-btn .icon { display: none; }
   .clock-state { font-size: 0; }
   .rec-top .undo-btn { padding: 0 8px; }
-  .clock-time { font-size: 22px; }
-  .clock-btn { padding: 2px 8px; column-gap: 6px; }
+  .clock-time { font-size: 28px; }
+  .clock-btn { padding: 2px 9px; column-gap: 6px; min-width: 150px; }
   .pl-num { font-size: 24px; }
   .plays { grid-auto-rows: 54px; }
   .play-btn { font-size: 15px; }
@@ -943,8 +968,8 @@ p.ctx-done { margin: 0; text-align: center; font-size: 17px; }
 
 .shot-halo .halo { fill: none; stroke: var(--shot-halo); stroke-width: .22; stroke-linecap: round; }
 .shot { fill: none; stroke-width: .09; stroke-linecap: round; }
-.shot.us { stroke: var(--us-bright); }
-.shot.opp { stroke: var(--opp-bright); }
+.shot.made { stroke: var(--shot-made); fill: color-mix(in srgb, var(--shot-made) 30%, transparent); }
+.shot.miss { stroke: var(--shot-miss); }
 .shot.faded { opacity: .6; }
 .shot.last { opacity: 1; stroke-width: .13; }
 .shot-hit { fill: transparent; cursor: pointer; }
@@ -1055,8 +1080,8 @@ table.defense th:first-child, table.defense td:first-child { font-family: var(--
 .chart-court .court { width: 100%; height: auto; max-height: max(420px, calc(100vh - 330px)); border-radius: 10px; }
 .chart-legend { display: flex; gap: 16px; justify-content: center; font-size: 13px; color: var(--ink-2); margin-top: 8px; flex-wrap: wrap; font-weight: 600; }
 .lg { display: inline-flex; align-items: center; gap: 6px; }
-.lg-made { width: 14px; height: 14px; border: 2.5px solid var(--ink-2); border-radius: 50%; display: inline-block; }
-.lg-miss { font-weight: 800; color: var(--ink-2); font-size: 18px; line-height: 1; }
+.lg-made { width: 14px; height: 14px; border: 2.5px solid var(--shot-made); background: color-mix(in srgb, var(--shot-made) 30%, transparent); border-radius: 50%; display: inline-block; }
+.lg-miss { font-weight: 800; color: var(--shot-miss); font-size: 18px; line-height: 1; }
 .lg-swatch { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
 .lg-swatch.us { background: var(--us); }
 .lg-swatch.opp { background: var(--opp); }

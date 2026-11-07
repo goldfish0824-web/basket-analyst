@@ -34,7 +34,7 @@ export async function renderQuarter(root, params, app) {
   const isHalftime = q === 2 && !inProgress;
   const ev = events.filter((e) => e.quarter && e.quarter <= q);
   const names = Object.fromEntries((game.roster || []).map((p) => [String(p.number), p.name]));
-  const candidates = buildCandidates(events, { quarter: q, inProgress });
+  const candidates = buildCandidates(events, { quarter: q, inProgress, exclude: app.settings.aiExclude });
   const ql = quarterLabel(q);
   const title = inProgress ? `${ql} 途中のまとめ` : `${ql} 終了${isHalftime ? '（ハーフタイム）' : ''}`;
 
@@ -188,7 +188,7 @@ export async function renderQuarter(root, params, app) {
     let options = [];
     let aiRelated = [];
     let note = '';
-    const payload = buildAdvicePayload({ events, quarter: q, inProgress, item, question, qa: QA_LIST });
+    const payload = buildAdvicePayload({ events, quarter: q, inProgress, item, question, qa: QA_LIST, exclude: app.settings.aiExclude });
     const online = typeof navigator === 'undefined' || navigator.onLine !== false;
     const r = await requestAdvice(app.settings, payload, { online });
     if (r.ok) {

@@ -80,3 +80,49 @@ test('時計：「5:32」「５：３２」「7」を秒に直す', () => {
   assert.equal(parseClock('5:75'), null);
   assert.equal(parseClock('abc'), null);
 });
+
+test('時計の進め方：設定から（前の「止める」を切っていたら止めないランニング）、試合に保存したものが優先', async () => {
+  const { defaultClockRule, clockRuleOf, normalizeClockRule } = await import('../js/clock.js');
+  assert.deepEqual(defaultClockRule({}), { mode: 'official', last2Official: true });
+  assert.deepEqual(defaultClockRule({ clockAutoStop: false }), { mode: 'running', last2Official: false });
+  assert.deepEqual(defaultClockRule({ clockMode: 'running_to', clockLast2Official: true }), { mode: 'running_to', last2Official: true });
+  assert.deepEqual(defaultClockRule({ clockMode: 'running', clockLast2Official: false }), { mode: 'running', last2Official: false });
+  assert.deepEqual(clockRuleOf({ clockRule: { mode: 'running_to', last2Official: false } }, { clockMode: 'official' }), { mode: 'running_to', last2Official: false });
+  assert.deepEqual(clockRuleOf({}, { clockMode: 'running_to' }), { mode: 'running_to', last2Official: true });
+  assert.deepEqual(normalizeClockRule({ mode: 'xxx' }), { mode: 'official', last2Official: true });
+});
+
+test('時計の進め方：正式はファウル・タイムアウトで止める。ランニングはタイムアウトだけ、4Q・延長の残り2分は正式', async () => {
+  const { shouldAutoStop, isOfficialTime } = await import('../js/clock.js');
+  const official = { mode: 'official', last2Official: true };
+  const run = { mode: 'running_to', last2Official: true };
+  const free = { mode: 'running', last2Official: true };
+  const freeAll = { mode: 'running', last2Official: false };
+  assert.equal(shouldAutoStop('foul', official, 1, 500), true);
+  assert.equal(shouldAutoStop('timeout', official, 1, 500), true);
+  assert.equal(shouldAutoStop('fg', official, 4, 30), false);
+  assert.equal(shouldAutoStop('foul', run, 1, 500), false);
+  assert.equal(shouldAutoStop('timeout', run, 1, 500), true);
+  assert.equal(shouldAutoStop('foul', run, 3, 60), false, '3Q は残り2分でもランニング');
+  assert.equal(shouldAutoStop('foul', run, 4, 121), false);
+  assert.equal(shouldAutoStop('foul', run, 4, 120), true, '4Q 残り2分から正式');
+  assert.equal(shouldAutoStop('foul', run, 5, 90), true, '延長の残り2分も正式');
+  assert.equal(shouldAutoStop('timeout', free, 2, 300), false);
+  assert.equal(shouldAutoStop('timeout', free, 4, 100), true);
+  assert.equal(shouldAutoStop('foul', freeAll, 4, 10), false);
+  assert.equal(isOfficialTime(run, 4, 119), true);
+  assert.equal(isOfficialTime(run, 4, null), false);
+});
+
+test('時計の進め方：ランニングで 4Q 残り2分に入った瞬間だけ知らせる、説明の文', async () => {
+  const { enteredLastMinutes, clockRuleText } = await import('../js/clock.js');
+  const run = { mode: 'running_to', last2Official: true };
+  assert.equal(enteredLastMinutes(run, 4, 120.4, 119.9), true);
+  assert.equal(enteredLastMinutes(run, 4, 119.9, 119.6), false);
+  assert.equal(enteredLastMinutes(run, 3, 120.4, 119.9), false);
+  assert.equal(enteredLastMinutes({ mode: 'official' }, 4, 120.4, 119.9), false);
+  assert.equal(enteredLastMinutes({ mode: 'running_to', last2Official: false }, 4, 120.4, 119.9), false);
+  assert.equal(clockRuleText({ mode: 'official' }), '正式（ファウル・タイムアウトで止める）');
+  assert.equal(clockRuleText(run), 'ランニング（タイムアウトだけ止める）・4Qと延長の残り2分は正式');
+  assert.equal(clockRuleText({ mode: 'running', last2Official: false }), 'ランニング（自動では止めない）');
+});

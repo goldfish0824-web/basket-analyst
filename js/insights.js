@@ -171,13 +171,13 @@ function turnovers(ev, scope) {
       const k = ds.length;
       if (k >= 3 && k / n >= 0.6) {
         const detail = team === 'us' ? `${defense}から` : `自チームの${defense}から`;
-        out.push({ category: 'turnovers', team, subject, situation: `ターンオーバー（${detail}）`, detail, made: k, att: n, scope: scope.label });
+        out.push({ category: 'turnovers', team, subject, situation: `ターンオーバー（${detail}）`, detail, by: 'defense', made: k, att: n, scope: scope.label });
       }
     }
     for (const tag of new Set(tos.flatMap((e) => e.tags || []))) {
       const k = tos.filter((e) => (e.tags || []).includes(tag)).length;
       if (k >= 3 && k / n >= 0.6) {
-        out.push({ category: 'turnovers', team, subject, situation: `ターンオーバー（${tag}）`, detail: tag, made: k, att: n, scope: scope.label });
+        out.push({ category: 'turnovers', team, subject, situation: `ターンオーバー（${tag}）`, detail: tag, by: 'tag', made: k, att: n, scope: scope.label });
       }
     }
   }
@@ -298,6 +298,37 @@ export function localScore(c) {
   return Math.min(0.45, 0.1 + (OTHER_WEIGHT[c.category] || 0.05) + 0.1 * mag);
 }
 
+// ---- AI に伝えない項目（記録し忘れが多い項目を、特筆データ・対処の例・ふりかえりで扱わない） ----
+
+export const AI_EXCLUDE_ITEMS = [
+  { key: 'rebounds', label: 'リバウンド' },
+  { key: 'usDefense', label: '自チームの守備隊形' },
+  { key: 'oppDefense', label: '相手の守備隊形' },
+];
+
+/** 選んでいる項目の名前（「リバウンド・相手の守備隊形」） */
+export function excludedLabels(exclude) {
+  return AI_EXCLUDE_ITEMS.filter((x) => exclude && exclude[x.key]).map((x) => x.label);
+}
+
+/** 守備隊形による偏りのターンオーバーか（古い記録には by がないので、「〜から」で見分ける） */
+function isDefenseTurnover(c) {
+  return c.category === 'turnovers' && (c.by === 'defense' || (c.by == null && /から$/.test(c.detail || '')));
+}
+
+/**
+ * 候補が「伝えない項目」に当たるか。
+ * リバウンド：リバウンド差。相手の守備隊形：自チームの攻めの守備隊形別・自チームのターンオーバーの隊形の偏り。
+ * 自チームの守備隊形：相手のターンオーバーの隊形の偏り。
+ */
+export function isExcluded(c, exclude) {
+  if (!c || !exclude) return false;
+  if (exclude.rebounds && c.category === 'rebounds') return true;
+  if (exclude.oppDefense && (c.category === 'us_defense_eff' || (isDefenseTurnover(c) && c.team === 'us'))) return true;
+  if (exclude.usDefense && isDefenseTurnover(c) && c.team === 'opp') return true;
+  return false;
+}
+
 /** 点数の高い順（同点なら試投数の多い順）。元の配列は変えない */
 export function rankCandidates(list) {
   return list
@@ -310,7 +341,7 @@ export function rankCandidates(list) {
  * 候補をすべて作り、順位を付けて c1, c2… の ID を振る。
  * opts = { quarter, inProgress }（inProgress：タイムアウトなどクォーターの途中）
  */
-export function buildCandidates(allEvents, { quarter, inProgress = false }) {
+export function buildCandidates(allEvents, { quarter, inProgress = false, exclude = null }) {
   const events = allEvents.filter((e) => e.quarter && e.quarter <= quarter);
   const raw = [];
   for (const scope of scopesFor(quarter)) {
@@ -320,6 +351,8 @@ export function buildCandidates(allEvents, { quarter, inProgress = false }) {
     if (scope.single) raw.push(...run(ev, scope));
   }
   raw.push(...foulTrouble(events, quarter, inProgress));
+  // 「AIに伝えない」と決めた項目（記録が不完全なもの）は候補にしない
+  for (let i = raw.length - 1; i >= 0; i--) if (isExcluded(raw[i], exclude)) raw.splice(i, 1);
 
   // 範囲が違っても数字がまったく同じなら、狭い範囲（先に作ったほう）だけ残す
   const seen = new Set();

@@ -2,7 +2,7 @@
 // 決めるのはコーチ。AI の答えは「選択肢の例」として表示し、「〜すべき」とは書かせない（Worker の指示文で指定）。
 import { scoreOf, scoreByQuarter } from './stats.js';
 import { defenseSide } from './model.js';
-import { toWire } from './insights.js';
+import { toWire, excludedLabels } from './insights.js';
 
 export const ADVICE_KIND = 'advice';
 export const MAX_QUESTION = 200;
@@ -23,6 +23,13 @@ export function currentDefenses(events) {
   return { opp, us };
 }
 
+/** 伝えない項目があれば、質問の前に「〜には触れないでください」を付ける */
+function withExcludeNote(question, exclude) {
+  const labels = excludedLabels(exclude);
+  if (!labels.length) return question;
+  return `（${labels.join('・')}は記録していないので触れないでください）${question}`.slice(0, MAX_QUESTION);
+}
+
 /** 質問の文字を整える（前後の空白を取り、長さを切る） */
 export function cleanQuestion(text) {
   return String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_QUESTION);
@@ -33,7 +40,7 @@ export function cleanQuestion(text) {
  * item：AI特筆データの1行（{ line, candidate }）か null。question：自由入力の質問（空でもよい。item か question のどちらかは必要）
  * qa：場面別Q&A の { id, title } の一覧（AI が関係の深いものを選ぶ）
  */
-export function buildAdvicePayload({ events, quarter, inProgress = false, item = null, question = '', qa = [] }) {
+export function buildAdvicePayload({ events, quarter, inProgress = false, item = null, question = '', qa = [], exclude = null }) {
   const ev = events.filter((e) => e.quarter && e.quarter <= quarter);
   const s = scoreOf(ev);
   const q = scoreByQuarter(ev);
@@ -44,8 +51,9 @@ export function buildAdvicePayload({ events, quarter, inProgress = false, item =
     isHalftime: quarter === 2 && !inProgress,
     inProgress: !!inProgress,
     score: { us: s.us, opp: s.opp, byQuarter: { us: q.us.slice(0, quarter), opp: q.opp.slice(0, quarter) } },
-    defenses: { opp: def.opp, us: def.us },
-    question: cleanQuestion(question),
+    // 「AIに伝えない」守備隊形は送らない
+    defenses: { opp: exclude && exclude.oppDefense ? null : def.opp, us: exclude && exclude.usDefense ? null : def.us },
+    question: withExcludeNote(cleanQuestion(question), exclude),
     qa: qa.map((x) => ({ id: x.id, title: x.title })),
   };
   if (item && item.candidate) payload.insight = { line: String(item.line || '').slice(0, 80), candidate: toWire(item.candidate) };

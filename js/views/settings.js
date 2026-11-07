@@ -2,10 +2,12 @@
 import { getVersion, checkNow } from '../update.js';
 import { accountCard } from './account.js';
 import { isLoggedIn } from '../sync.js';
-import { h, toast, confirmDialog, isStandalone, icon, applyTheme } from '../ui.js';
+import { h, replace, toast, confirmDialog, isStandalone, icon, applyTheme } from '../ui.js';
 import { DEFAULT_DEFENSES, uuid } from '../model.js';
 import { insightEndpoint, testConnection, reasonText } from '../ai.js';
 import { CHECK_METRICS, CHECK_EXAMPLES, DEFAULT_REWIND_SEC, targetText, parseBulkItems } from '../review.js';
+import { CLOCK_MODES, defaultClockRule } from '../clock.js';
+import { AI_EXCLUDE_ITEMS } from '../insights.js';
 import {
   installHint, exportAll, importBackup, createDemoGame, rosterEditor, lastBackupText,
 } from './shared.js';
@@ -185,6 +187,7 @@ export async function renderSettings(root, params, app) {
           }, '例を入れる'))),
       clockCard(app),
       playsCard(app),
+      aiExcludeCard(app),
       h('section', { class: 'card' },
         h('h2', null, '振り返り（動画）'),
         h('label', { class: 'field inline' },
@@ -451,25 +454,43 @@ function updateCard() {
 }
 
 
-/** 試合時計（クォーター・延長の長さ、記録したら時計を止めるプレー） */
+/** 試合時計（クォーター・延長の長さ、新しい試合の時計の進め方） */
 function clockCard(app) {
   const minuteSelect = (value, max, label) => h('select', { 'aria-label': label, class: 'clock-min' },
     Array.from({ length: max }, (_, i) => i + 1).map((m) => h('option', { value: String(m), selected: m === Number(value) }, `${m}分`)));
   const qSel = minuteSelect(app.settings.quarterMin ?? 10, 12, 'クォーターの長さ');
   const otSel = minuteSelect(app.settings.otMin ?? 5, 10, '延長の長さ');
-  const autoStop = h('input', { type: 'checkbox', checked: app.settings.clockAutoStop !== false, 'aria-label': 'ファウル・タイムアウトを記録したら時計を止める' });
+  let rule = defaultClockRule(app.settings);
+  const ruleBox = h('div');
+  function drawRule() {
+    replace(ruleBox,
+      h('div', { class: 'rule-options' }, CLOCK_MODES.map((m) => h('button', {
+        class: ['btn rule-option', rule.mode === m.key && 'on'], type: 'button', 'aria-pressed': String(rule.mode === m.key),
+        onclick: () => { rule = { ...rule, mode: m.key }; drawRule(); },
+      }, h('strong', null, m.label), h('span', null, m.note)))),
+      rule.mode !== 'official'
+        ? h('label', { class: 'check-line' },
+          h('input', { type: 'checkbox', checked: rule.last2Official, 'aria-label': '4Qと延長の残り2分は正式', onchange: (ev) => { rule = { ...rule, last2Official: ev.target.checked }; } }),
+          h('span', null, '4Qと延長の残り2分は正式（ファウル・タイムアウトで止める）'))
+        : null);
+  }
+  drawRule();
   return h('section', { class: 'card' },
     h('h2', null, '試合時計'),
     h('p', { class: 'field-note' }, '記録画面の時計は、クォーター開始で動き出します。笛で止まったら時計をタップして止め、プレーが再開したらもう一度タップして動かします。記録には時計の残り時間が付き、出場時間の計算にも使います。'),
     h('div', { class: 'row' },
       h('label', { class: 'field inline' }, h('span', { class: 'field-label' }, 'クォーター'), qSel),
       h('label', { class: 'field inline' }, h('span', { class: 'field-label' }, '延長'), otSel)),
-    h('label', { class: 'check-line' }, autoStop, h('span', null, 'ファウル・タイムアウトを記録したら時計を止める')),
+    h('h3', null, '新しい試合の時計の進め方'),
+    h('p', { class: 'field-note' }, '試合ごとに、記録画面（試合開始前のカード、時計の合わせ方、メニュー）からも変えられます。'),
+    ruleBox,
     h('div', { class: 'row' }, h('button', {
       class: 'btn primary', type: 'button',
       onclick: async () => {
-        await app.saveSettings({ ...app.settings, quarterMin: Number(qSel.value), otMin: Number(otSel.value), clockAutoStop: autoStop.checked });
-        toast('保存しました（次に開始するクォーターから使います）');
+        await app.saveSettings({
+          ...app.settings, quarterMin: Number(qSel.value), otMin: Number(otSel.value), clockMode: rule.mode, clockLast2Official: rule.last2Official,
+        });
+        toast('保存しました（次に開始する試合・クォーターから使います）');
       },
     }, '保存')));
 }
@@ -487,4 +508,23 @@ function playsCard(app) {
     h('h2', null, '記録するプレー'),
     h('label', { class: 'check-line' }, ast, h('span', null, 'アシストを記録する')),
     h('p', { class: 'field-note' }, 'チェックを入れると、記録画面に「アシスト」ボタンと、シュート成功の直後にアシストを1タップで記録する行が出ます。記録しない試合は、集計にアシストの列を出さず、AIふりかえりにもアシストの数を送りません。'));
+}
+
+/** AI に伝えない項目（記録し忘れが多い項目は、AI特筆データ・対処の例・AIふりかえりで扱わない） */
+function aiExcludeCard(app) {
+  const boxes = AI_EXCLUDE_ITEMS.map((it) => {
+    const box = h('input', {
+      type: 'checkbox', checked: !!(app.settings.aiExclude && app.settings.aiExclude[it.key]), 'aria-label': `${it.label}をAIに伝えない`,
+      onchange: async () => {
+        const next = { ...(app.settings.aiExclude || {}), [it.key]: box.checked };
+        await app.saveSettings({ ...app.settings, aiExclude: next });
+        toast(box.checked ? `${it.label}はAIに伝えません` : `${it.label}もAIに伝えます`);
+      },
+    });
+    return h('label', { class: 'check-line' }, box, h('span', null, it.label));
+  });
+  return h('section', { class: 'card' },
+    h('h2', null, 'AIに伝えない項目'),
+    h('p', { class: 'field-note' }, '記録し忘れが多い項目にチェックを入れると、AI特筆データの候補に出さず、「対処の例を聞く」「AIふりかえり」でもその数字を送らずに「触れないでください」と伝えます。集計画面の数字はそのまま見られます。ログインしている端末どうしで共有します。'),
+    boxes);
 }

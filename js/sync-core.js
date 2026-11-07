@@ -7,7 +7,7 @@
 //  ・デモ試合は共有しない（端末の中だけ）
 
 /** チームで共有する設定（端末ごとの設定・AI接続・ログイン・お気に入りは共有しない） */
-export const SHARED_SETTING_KEYS = ['rosterTemplate', 'defenses', 'checklistTemplate', 'rewindSec', 'qaNotes'];
+export const SHARED_SETTING_KEYS = ['rosterTemplate', 'defenses', 'checklistTemplate', 'rewindSec', 'qaNotes', 'aiExclude'];
 
 /** 1回に送る数の上限（Worker の MAX_PUSH と同じ） */
 export const PUSH_CHUNK = 300;

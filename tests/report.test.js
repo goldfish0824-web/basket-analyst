@@ -92,3 +92,25 @@ test('アシストを記録していない試合は、アシストの数を送�
   assert.equal('ast' in noAst.opp, false);
   assert.ok(noAst.players.every((x) => !('ast' in x)));
 });
+
+test('AIに伝えない項目：リバウンド・守備隊形の数字を送らず、メモの先頭で「触れない」と伝える', () => {
+  const { game, events } = demo();
+  game.checklist.push({ itemId: 'r', label: 'ボックスアウト', mark: '×', target: { key: 'opp_or', op: 'le', value: 8 } });
+  game.insights.push({ quarter: 3, inProgress: false, createdAt: 9, items: [{ line: 'OR 自3・相手9', candidate: { category: 'rebounds' } }, { line: '相手#7 4/5', candidate: { category: 'opp_hot' } }] });
+  const p = buildReportPayload({ game, events, coachNote: '県大会に向けて', exclude: { rebounds: true, oppDefense: true, usDefense: true } });
+  assert.equal('or' in p.us, false);
+  assert.equal('dr' in p.opp, false);
+  assert.ok(p.players.every((x) => !('or' in x) && !('dr' in x)));
+  assert.equal('orPct' in p.indicators.us, false);
+  assert.deepEqual(p.byDefense, []);
+  assert.deepEqual(p.oppByDefense, []);
+  assert.ok(!p.insights.some((x) => x.line.startsWith('OR')));
+  assert.ok(p.insights.some((x) => x.line.startsWith('相手#7')));
+  assert.equal(p.checklist.find((x) => x.label === 'ボックスアウト').auto, undefined, 'リバウンドの目標は自動判定を送らない');
+  assert.match(p.coachNote, /^（リバウンド・自チームの守備隊形・相手の守備隊形は記録が不完全なので/);
+  assert.match(p.coachNote, /県大会に向けて$/);
+  // 指定しなければ今まで通り
+  const q = buildReportPayload({ game, events, coachNote: '県大会に向けて' });
+  assert.ok('or' in q.us && q.byDefense.length > 0);
+  assert.equal(q.coachNote, '県大会に向けて');
+});

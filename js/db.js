@@ -341,12 +341,15 @@ export const DEFAULT_SETTINGS = {
   lastBackupAt: null,
   checklistTemplate: [],
   rewindSec: 8,
-  // 試合時計（端末ごと）：クォーターと延長の長さ（分）、ファウル・タイムアウトを記録したら時計を止めるか
+  // 試合時計（端末ごと）：クォーターと延長の長さ（分）、新しい試合の時計の進め方（clock.js の CLOCK_MODES）
   quarterMin: 10,
   otMin: 5,
-  clockAutoStop: true,
+  clockMode: '',
+  clockLast2Official: true,
   // アシストを記録するか（端末ごと。既定は記録しない。1人で記録するときの負担を減らすため）
   recordAssists: false,
+  // AI に伝えない項目（記録し忘れが多い項目。チームで共有）：リバウンド、自チームの守備隊形、相手の守備隊形
+  aiExclude: { rebounds: false, usDefense: false, oppDefense: false },
   // 場面別Q&A のお気に入りとチームのメモ
   qaFavorites: [],
   qaNotes: {},
@@ -366,6 +369,7 @@ export function normalizeSettings(value) {
   if (!Array.isArray(s.defenses) || s.defenses.length === 0) s.defenses = [...DEFAULT_DEFENSES];
   if (!Array.isArray(s.rosterTemplate)) s.rosterTemplate = [];
   if (!Array.isArray(s.checklistTemplate)) s.checklistTemplate = [];
+  if (!s.aiExclude || typeof s.aiExclude !== 'object') s.aiExclude = { ...DEFAULT_SETTINGS.aiExclude };
   return s;
 }
 

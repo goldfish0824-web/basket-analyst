@@ -736,6 +736,7 @@ p.ctx-done { margin: 0; text-align: center; font-size: 17px; }
 .play-btn.to { box-shadow: inset 0 -3px 0 var(--warn); }
 .play-btn.foul { box-shadow: inset 0 -3px 0 var(--crit); }
 .play-btn.meta { background: var(--surface); font-size: 15px; color: var(--ink-2); }
+.play-btn.wide { grid-column: span 2; }
 .play-btn.on { background: var(--accent); border-color: transparent; color: #fff; box-shadow: 0 0 0 2px var(--accent-soft), 0 0 18px var(--accent-glow); }
 .play-btn:disabled { opacity: .3; cursor: default; }
 .play-btn:active:not(:disabled), .pl-btn:active:not(:disabled), .log-item:active { transform: translateY(1px); filter: brightness(.94); }

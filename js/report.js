@@ -12,11 +12,14 @@ const MAX_ITEMS = 4;
 const ma = (m, a) => [m, a];
 const round2 = (v) => (v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100);
 
-function lineOf(r) {
-  return {
+function lineOf(r, withAst = true) {
+  const line = {
     pts: r.pts, fg: ma(r.fgm, r.fga), tp: ma(r.tpm, r.tpa), ft: ma(r.ftm, r.fta),
     or: r.oreb, dr: r.dreb, ast: r.ast, stl: r.stl, to: r.to, pf: r.pf,
   };
+  // アシストを記録していない試合は 0 本と読まれないように送らない
+  if (!withAst) delete line.ast;
+  return line;
 }
 
 function active(r) {
@@ -38,6 +41,7 @@ export function buildReportPayload({ game, events, defenses = [], coachNote = ''
   // 名前は渡さない（背番号だけの行にする）
   const usBox = teamBox(events, 'us', []);
   const oppBox = teamBox(events, 'opp', []);
+  const withAst = events.some((e) => e.type === 'ast');
   const zoneList = (team) => Object.entries(zoneStats(filterShots(events, { team })))
     .filter(([, v]) => v.att > 0)
     .map(([zone, v]) => ({ zone, made: v.made, att: v.att }));
@@ -67,13 +71,13 @@ export function buildReportPayload({ game, events, defenses = [], coachNote = ''
   return {
     kind: REPORT_KIND,
     score: { us: s.us, opp: s.opp, byQuarter: { us: byQ.us, opp: byQ.opp } },
-    us: lineOf(usBox.total),
-    opp: lineOf(oppBox.total),
+    us: lineOf(usBox.total, withAst),
+    opp: lineOf(oppBox.total, withAst),
     indicators: {
       us: { ppp: round2(ind.us.ppp), orPct: round2(ind.us.orPct), secondChancePts: ind.us.secondChancePts, fastBreakPts: ind.us.fastBreakPts },
       opp: { ppp: round2(ind.opp.ppp), orPct: round2(ind.opp.orPct), secondChancePts: ind.opp.secondChancePts, fastBreakPts: ind.opp.fastBreakPts },
     },
-    players: usBox.rows.filter(active).map((r) => ({ no: `#${r.number}`, ...lineOf(r) })),
+    players: usBox.rows.filter(active).map((r) => ({ no: `#${r.number}`, ...lineOf(r, withAst) })),
     oppScorers: oppBox.rows.filter((r) => r.pts >= 6).sort((a, b) => b.pts - a.pts).slice(0, 5)
       .map((r) => ({ no: `#${r.number}`, pts: r.pts, fg: ma(r.fgm, r.fga), tp: ma(r.tpm, r.tpa) })),
     byDefense: defList('us'),

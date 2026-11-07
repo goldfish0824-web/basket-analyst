@@ -130,12 +130,14 @@ export function boxSection(game, events) {
   const pt = playingTime(events, 'us');
   const showTime = pt.tracked && pt.seconds != null;
   const showPm = pt.tracked;
+  // アシストを記録していない試合は列を出さない（0 と読まれないように）
+  const showAst = events.some((e) => e.type === 'ast');
   const usHead = [
     { label: '背番号' }, { label: '呼び名', cls: 'name' },
     ...(showTime ? [{ label: '出場時間' }] : []), ...(showPm ? [{ label: '+/-' }] : []),
     { label: '得点' }, { label: 'FG' }, { label: 'FG%' },
     { label: '3P' }, { label: '3P%' }, { label: 'FT' }, { label: 'FT%' }, { label: 'OR' }, { label: 'DR' },
-    { label: 'アシスト' }, { label: 'スティール' }, { label: 'ブロック' }, { label: 'ターンオーバー' }, { label: 'ファウル' },
+    ...(showAst ? [{ label: 'アシスト' }] : []), { label: 'スティール' }, { label: 'ブロック' }, { label: 'ターンオーバー' }, { label: 'ファウル' },
   ];
   const pmText = (v) => (v == null ? '—' : v > 0 ? `+${v}` : String(v));
   const usLine = (label, name, r, number) => [
@@ -143,7 +145,7 @@ export function boxSection(game, events) {
     ...(showTime ? [number == null ? '' : pt.seconds[number] != null ? minutesText(pt.seconds[number]) : '0:00'] : []),
     ...(showPm ? [number == null ? '' : pmText(pt.plusMinus[number] ?? 0)] : []),
     r.pts, ma(r.fgm, r.fga), pctText(r.fgm, r.fga), ma(r.tpm, r.tpa), pctText(r.tpm, r.tpa),
-    ma(r.ftm, r.fta), pctText(r.ftm, r.fta), r.oreb, r.dreb, r.ast, r.stl, r.blk, r.to, r.pf,
+    ma(r.ftm, r.fta), pctText(r.ftm, r.fta), r.oreb, r.dreb, ...(showAst ? [r.ast] : []), r.stl, r.blk, r.to, r.pf,
   ];
   const usRows = us.rows.map((r) => ({ cells: usLine(`#${r.number}`, r.name, r, r.number), cls: r.pf >= 5 ? 'out' : r.pf === 4 ? 'pf4' : r.pf === 3 ? 'pf3' : '' }));
   const usFoot = [];

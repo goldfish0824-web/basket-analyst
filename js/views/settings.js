@@ -184,6 +184,7 @@ export async function renderSettings(root, params, app) {
             },
           }, '例を入れる'))),
       clockCard(app),
+      playsCard(app),
       h('section', { class: 'card' },
         h('h2', null, '振り返り（動画）'),
         h('label', { class: 'field inline' },
@@ -471,4 +472,19 @@ function clockCard(app) {
         toast('保存しました（次に開始するクォーターから使います）');
       },
     }, '保存')));
+}
+
+/** 記録するプレー（アシストを記録するか） */
+function playsCard(app) {
+  const ast = h('input', {
+    type: 'checkbox', checked: !!app.settings.recordAssists, 'aria-label': 'アシストを記録する',
+    onchange: async () => {
+      await app.saveSettings({ ...app.settings, recordAssists: ast.checked });
+      toast(ast.checked ? 'アシストを記録します' : 'アシストは記録しません');
+    },
+  });
+  return h('section', { class: 'card' },
+    h('h2', null, '記録するプレー'),
+    h('label', { class: 'check-line' }, ast, h('span', null, 'アシストを記録する')),
+    h('p', { class: 'field-note' }, 'チェックを入れると、記録画面に「アシスト」ボタンと、シュート成功の直後にアシストを1タップで記録する行が出ます。記録しない試合は、集計にアシストの列を出さず、AIふりかえりにもアシストの数を送りません。'));
 }

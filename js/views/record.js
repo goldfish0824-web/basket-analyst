@@ -23,6 +23,8 @@ const PLAY_BUTTONS = [
   'to', 'ast', 'stl', 'blk',
   'foul', 'timeout', 'adjust', 'cancel',
 ];
+/** アシストを記録しない設定のとき（既定）は「アシスト」ボタンを出さず、「選択を解除」を2マス分にする */
+const playButtons = (settings) => (settings.recordAssists ? PLAY_BUTTONS : PLAY_BUTTONS.filter((k) => k !== 'ast'));
 
 /** 記録したら時計を止めるプレー（設定で切り替え） */
 const CLOCK_STOPS = new Set(['foul', 'timeout']);
@@ -625,7 +627,7 @@ export async function renderRecord(root, params, app) {
     const on = court5();
     const pf = fouls();
     if (a.kind === 'fg' && a.made && a.team === 'us') {
-      if (!on) return null;
+      if (!on || !app.settings.recordAssists) return null;
       const mates = on.filter((n) => n !== a.player);
       return h('div', { class: 'ctx-row follow-row' },
         h('span', { class: 'follow-label' }, 'アシスト'),
@@ -736,7 +738,9 @@ export async function renderRecord(root, params, app) {
   // ---- プレーボタン ----
   function renderPlays() {
     const team = input.sel ? input.sel.team : null;
-    replace(plays, PLAY_BUTTONS.map((key) => {
+    const keys = playButtons(app.settings);
+    const wideCancel = keys.length % 4 !== 0;
+    replace(plays, keys.map((key) => {
       if (key === 'timeout' || key === 'adjust') {
         return h('button', {
           class: ['play-btn', 'meta', input.sheet === key && 'on'], type: 'button',
@@ -745,7 +749,7 @@ export async function renderRecord(root, params, app) {
       }
       if (key === 'cancel') {
         const busy = input.sel || input.loc || input.action;
-        return h('button', { class: 'play-btn meta', type: 'button', disabled: !busy, onclick: () => dispatch({ type: 'cancel' }) }, breakable('選択を解除'));
+        return h('button', { class: ['play-btn meta', wideCancel && 'wide'], type: 'button', disabled: !busy, onclick: () => dispatch({ type: 'cancel' }) }, breakable('選択を解除'));
       }
       const a = ACTIONS[key];
       const disabled = US_ONLY.has(key) && team === 'opp';

@@ -345,6 +345,8 @@ export const DEFAULT_SETTINGS = {
   quarterMin: 10,
   otMin: 5,
   clockAutoStop: true,
+  // アシストを記録するか（端末ごと。既定は記録しない。1人で記録するときの負担を減らすため）
+  recordAssists: false,
   // 場面別Q&A のお気に入りとチームのメモ
   qaFavorites: [],
   qaNotes: {},

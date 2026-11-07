@@ -324,3 +324,8 @@ test('続きの1タップ：フリースローの直後に同じ選手の次の1
   assert.equal(other.state.after, null);
   assert.deepEqual(other.state.sel, { team: 'opp', player: '4' });
 });
+
+test('既定の設定ではアシストを記録しない', async () => {
+  const { DEFAULT_SETTINGS } = await import('../js/db.js');
+  assert.equal(DEFAULT_SETTINGS.recordAssists, false);
+});

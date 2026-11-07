@@ -82,3 +82,13 @@ test('コピー用の文章：見出しと項目、最後に「決めるのは�
   assert.ok(t.endsWith('決めるのはコーチです。'));
   assert.ok(!/すべき/.test(t));
 });
+
+test('アシストを記録していない試合は、アシストの数を送らない（0 本と読まれないように）', () => {
+  const { game, events } = demo();
+  const withAst = buildReportPayload({ game, events });
+  assert.ok('ast' in withAst.us && withAst.players.every((x) => 'ast' in x), 'デモはアシストを記録している');
+  const noAst = buildReportPayload({ game, events: events.filter((e) => e.type !== 'ast') });
+  assert.equal('ast' in noAst.us, false);
+  assert.equal('ast' in noAst.opp, false);
+  assert.ok(noAst.players.every((x) => !('ast' in x)));
+});

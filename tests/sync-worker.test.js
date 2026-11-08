@@ -106,9 +106,10 @@ test('アカウント：管理者だけが作れる・一覧を見られる。�
   assert.equal(sato.role, 'staff');
   assert.equal((await call(env, '/basket/users', { token, body: { loginId: 'sato', displayName: '佐藤2', password: 'password-456', role: 'staff' } })).status, 409);
   assert.equal((await call(env, '/basket/users', { token, body: { loginId: 'kato', displayName: '加藤', password: 'short', role: 'staff' } })).status, 400);
-  assert.equal((await call(env, '/basket/users', { token, body: { loginId: 'kato', displayName: '加藤', password: 'password-456', role: 'student' } })).status, 400, '生徒は今後');
+  assert.equal((await call(env, '/basket/users', { token, body: { loginId: 'kato', displayName: '加藤', password: 'password-456', role: 'coach' } })).status, 400, '知らない役割');
+  assert.equal((await call(env, '/basket/users', { token, body: { loginId: 'buin', displayName: '部員', password: 'password-456', role: 'student' } })).status, 200, '部員（見るだけ）');
   const list = await (await call(env, '/basket/users', { method: 'GET', token })).json();
-  assert.deepEqual(list.users.map((u) => u.loginId), ['yamada', 'sato']);
+  assert.deepEqual(list.users.map((u) => u.loginId), ['yamada', 'sato', 'buin']);
   assert.ok(!JSON.stringify(list).includes('pbkdf2'), 'パスワードのハッシュは返さない');
   const st = await (await call(env, '/basket/auth/login', { body: { loginId: 'sato', password: 'password-456' } })).json();
   assert.equal((await call(env, '/basket/users', { method: 'GET', token: st.token })).status, 403);
@@ -179,14 +180,16 @@ test('同期：同じ記録は、端末で変えた時刻の新しいほうを�
   assert.deepEqual(del.items.map((i) => [i.id, i.deleted, i.data]), [['g1', true, '{}'], ['e9', true, '{}']]);
 });
 
-test('同期：生徒・ログインなしは使えない。形の違う変更は捨てる', async () => {
+test('同期：ログインなしは使えない。部員は受け取るだけ（送った変更は使わない）。形の違う変更は捨てる', async () => {
   const env = makeEnv();
   await setupAdmin(env);
   assert.equal((await call(env, '/basket/sync', { body: { cursor: 0 } })).status, 401);
-  // 生徒（今後）のアカウントを直接作って試す
-  env.DB.raw.prepare("INSERT INTO users (id, login_id, display_name, role, password_hash, created_at, updated_at) VALUES ('s1', 'student1', '生徒', 'student', ?, 1, 1)").run(await hashPassword('password-123', 1000));
+  // 部員（student）のアカウントを直接作って試す
+  env.DB.raw.prepare("INSERT INTO users (id, login_id, display_name, role, password_hash, created_at, updated_at) VALUES ('s1', 'student1', '部員', 'student', ?, 1, 1)").run(await hashPassword('password-123', 1000));
   const st = await (await call(env, '/basket/auth/login', { body: { loginId: 'student1', password: 'password-123' } })).json();
-  assert.equal((await call(env, '/basket/sync', { token: st.token, body: { cursor: 0 } })).status, 403);
+  const r = await call(env, '/basket/sync', { token: st.token, body: { cursor: 0, push: { games: [{ id: 'x', data: '{}', updatedAt: 5 }] } } });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).applied.games, 0);
   const c = cleanPush({
     games: [{ id: 'ok', updatedAt: 1, data: '{}' }, { id: 'bad id!', updatedAt: 1 }, { id: 'nostamp' }, { id: 'big', updatedAt: 1, data: 'x'.repeat(500000) }],
     events: [{ id: 'e1', updatedAt: 1, data: '{}' }, { id: 'e2', gameId: 'g', updatedAt: 1, data: '{}' }],
@@ -248,4 +251,36 @@ test('AI の結果は管理者だけ：スタッフには外して渡し、ス�
   assert.equal((await call(env, '/basket/insight', { token: staff, pass: 'staff-pass-1', body: q })).status, 403, 'スタッフのログインならパスコードがあっても使えない');
   assert.notEqual((await call(env, '/basket/insight', { token: admin, body: q })).status, 403);
   assert.notEqual((await call(env, '/basket/insight', { pass: 'staff-pass-1', body: q })).status, 401);
+});
+
+test('部員（見るだけ）：受け取るだけ。AI の結果・チェック項目・動画は渡さず、チームの設定は守備隊形だけ。送っても反映しない', async () => {
+  const env = makeEnv();
+  const admin = (await setupAdmin(env)).token;
+  const made = await call(env, '/basket/users', { token: admin, body: { loginId: 'buin', displayName: '部員', password: 'password-789', role: 'student' } });
+  assert.equal(made.status, 200);
+  assert.equal((await made.json()).user.role, 'student');
+  const st = (await (await call(env, '/basket/auth/login', { body: { loginId: 'buin', password: 'password-789' } })).json()).token;
+  const game = { id: 'g1', opponent: '架空高校', roster: [{ number: '4', name: 'A' }], insights: [{ q: 1 }], reports: [{}], checklist: [{ label: 'ボックスアウト', memo: '#4 が外された' }], videos: [{ url: 'https://youtu.be/x' }] };
+  await call(env, '/basket/sync', { token: admin, body: { cursor: 0, push: {
+    games: [{ id: 'g1', data: JSON.stringify(game), updatedAt: 100 }],
+    events: [{ id: 'e1', gameId: 'g1', data: JSON.stringify({ id: 'e1', gameId: 'g1', type: 'fg', team: 'us', player: '4', made: true, points: 2 }), updatedAt: 100 }],
+    team: { data: JSON.stringify({ defenses: ['マンツー', '2-3ゾーン'], qaNotes: { x: 'コーチのメモ' }, rosterTemplate: [{ number: '4', name: 'A' }], aiExclude: { rebounds: true } }), updatedAt: 100 },
+  } } });
+  const body = await (await call(env, '/basket/sync', { token: st, body: { cursor: 0 } })).json();
+  assert.equal(body.readOnly, true);
+  const g = JSON.parse(body.items.find((i) => i.t === 'g').data);
+  for (const k of ['insights', 'reports', 'checklist', 'videos']) assert.equal(k in g, false, k);
+  assert.deepEqual(g.roster, game.roster, '個人スタッツのため名簿は渡す');
+  assert.ok(body.items.some((i) => i.t === 'e'), '記録（スタッツのもと）は渡す');
+  assert.deepEqual(JSON.parse(body.items.find((i) => i.t === 's').data), { defenses: ['マンツー', '2-3ゾーン'] });
+  // 部員が送っても反映しない
+  const pushed = await (await call(env, '/basket/sync', { token: st, body: { cursor: body.cursor, push: { games: [{ id: 'g1', data: JSON.stringify({ ...game, opponent: '書きかえ' }), updatedAt: 999 }], events: [{ id: 'e1', gameId: 'g1', data: '{}', updatedAt: 999, deleted: true }] } } })).json();
+  assert.deepEqual(pushed.applied, { games: 0, events: 0, team: 0, rejected: 0 });
+  const after = await (await call(env, '/basket/sync', { token: admin, body: { cursor: 0 } })).json();
+  assert.equal(JSON.parse(after.items.find((i) => i.t === 'g').data).opponent, '架空高校');
+  assert.equal(after.items.find((i) => i.t === 'e').deleted, false);
+  // AI・アカウントの管理は使えない。役割を部員に変えられる
+  assert.equal((await call(env, '/basket/insight', { token: st, body: { kind: 'quarter_insight', candidates: [] } })).status, 403);
+  assert.equal((await call(env, '/basket/users', { method: 'GET', token: st })).status, 403);
+  assert.equal((await call(env, '/basket/auth/me', { method: 'GET', token: st })).status, 200);
 });

@@ -1,5 +1,5 @@
 // 集計画面（SPEC 4章）：ボックススコア、相手チーム、チーム指標、シュートチャート、クォーター別得点、守備隊形別
-import { canUseAi } from '../sync-core.js';
+import { canUseAi, isViewer } from '../sync-core.js';
 import * as db from '../db.js';
 import { h, replace, toast, formatDate, icon } from '../ui.js';
 import { quarterLabel, sortNumbers, SHOT_TAGS, TEAM_LABEL, describeEvent } from '../model.js';
@@ -56,7 +56,8 @@ export async function renderSummary(root, params, app) {
       h('div', { class: 'head-title' },
         h('h1', null, `集計　vs ${game.opponent || '相手'}`),
         h('span', { class: 'muted' }, `${formatDate(game.date)} ${game.tournament || ''}`)),
-      h('div', { class: 'head-actions' },
+      // 部員（見るだけ）は集計を見るだけ
+      isViewer(app.settings) ? h('div', { class: 'head-actions' }) : h('div', { class: 'head-actions' },
         h('button', { class: 'btn', type: 'button', onclick: () => exportGame(game) }, icon('share'), '書き出す'),
         h('a', { class: 'btn', href: `#/game/${game.id}/review` }, icon('film'), '振り返り'),
         // AIふりかえりは管理者だけ

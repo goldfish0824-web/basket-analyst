@@ -6,7 +6,7 @@ import {
 } from '../sync.js';
 import { workerBase, extractWorkerUrl, connectMessage, connectHost } from '../sync-core.js';
 
-const ROLE_LABEL = { admin: '管理者', staff: 'スタッフ', student: '生徒' };
+const ROLE_LABEL = { admin: '管理者', staff: 'スタッフ', student: '部員（見るだけ）' };
 
 function input(attrs) {
   return h('input', { autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', ...attrs });
@@ -78,7 +78,9 @@ export function accountCard(app) {
         say(`ログインできません：${errorText(r)}`, 'error');
         return;
       }
-      toast('ログインしました。この端末の記録を共有に送ります');
+      toast(app.settings.authUser && app.settings.authUser.role === 'student'
+        ? 'ログインしました（部員用・見るだけ）。試合を受け取ります'
+        : 'ログインしました。この端末の記録を共有に送ります');
       app.go('#/settings');
     });
 
@@ -167,10 +169,13 @@ export function accountCard(app) {
       h('p', { class: 'muted' }, `ID：${u.loginId || ''}`),
       statusEl,
       h('div', { class: 'row' }, syncBtn, outBtn),
-      connectSection(),
-      passwordSection(),
+      // 部員（見るだけ）の端末では、接続先を送る・パスワードを変える（みんなで使うアカウントなので）を出さない
+      u.role === 'student' ? null : connectSection(),
+      u.role === 'student' ? null : passwordSection(),
       u.role === 'admin' ? usersSection(u) : null,
-      h('p', { class: 'field-note' }, '1つの試合は1台で記録してください（ほかの端末からは見るだけ）。2台で同時に記録すると、記録の順番が乱れることがあります。'),
+      u.role === 'student'
+        ? h('p', { class: 'field-note' }, '部員用のアカウントです。先生が記録した試合の集計を見られます（見るだけ）。')
+        : h('p', { class: 'field-note' }, '1つの試合は1台で記録してください（ほかの端末からは見るだけ）。2台で同時に記録すると、記録の順番が乱れることがあります。'),
     ];
   }
 
@@ -278,10 +283,13 @@ export function accountCard(app) {
         },
       }, 'パスワード再設定'));
       if (!self) {
-        buttons.push(h('button', {
-          class: 'btn small', type: 'button',
-          onclick: () => act(updateUser(app, { id: u.id, role: u.role === 'admin' ? 'staff' : 'admin' }), '役割を変えました'),
-        }, u.role === 'admin' ? 'スタッフにする' : '管理者にする'));
+        // 部員（見るだけ）の役割は変えない（変えるときは、消して作り直す）
+        if (u.role !== 'student') {
+          buttons.push(h('button', {
+            class: 'btn small', type: 'button',
+            onclick: () => act(updateUser(app, { id: u.id, role: u.role === 'admin' ? 'staff' : 'admin' }), '役割を変えました'),
+          }, u.role === 'admin' ? 'スタッフにする' : '管理者にする'));
+        }
         buttons.push(h('button', {
           class: 'btn small', type: 'button',
           onclick: () => act(updateUser(app, { id: u.id, disabled: !u.disabled }), u.disabled ? '使えるようにしました' : '使えなくしました（ログインが切れます）'),
@@ -304,7 +312,10 @@ export function accountCard(app) {
     const nName = input({ type: 'text', placeholder: '例：佐藤', maxlength: '30', 'aria-label': '新しいアカウントの表示名' });
     const nId = input({ type: 'text', placeholder: '例：sato', 'aria-label': '新しいアカウントの ID' });
     const nPw = input({ type: 'text', placeholder: '8字以上', 'aria-label': '新しいアカウントの最初のパスワード' });
-    const nRole = h('select', { 'aria-label': '役割' }, h('option', { value: 'staff' }, 'スタッフ'), h('option', { value: 'admin' }, '管理者'));
+    const nRole = h('select', { 'aria-label': '役割' },
+      h('option', { value: 'staff' }, 'スタッフ'),
+      h('option', { value: 'student' }, '部員（見るだけ）'),
+      h('option', { value: 'admin' }, '管理者'));
     const addBtn = h('button', { class: 'btn primary', type: 'button' }, icon('plus'), '追加');
     addBtn.addEventListener('click', async () => {
       addBtn.disabled = true;
@@ -320,15 +331,15 @@ export function accountCard(app) {
     });
 
     const details = h('details', { class: 'account-sub' },
-      h('summary', null, 'スタッフのアカウント（管理者だけ）'),
+      h('summary', null, 'アカウント（スタッフ・部員。管理者だけ）'),
       list,
       h('h3', null, 'アカウントを追加'),
       h('div', { class: 'grid-2' },
         field('表示名', nName), field('ID', nId, '英小文字・数字・「. _ -」で3〜32字'),
-        field('最初のパスワード', nPw, '8字以上。本人がログイン後に変える'), field('役割', nRole, '管理者はアカウントを作れる')),
+        field('最初のパスワード', nPw, '8字以上。本人がログイン後に変える'), field('役割', nRole, 'スタッフ：記録・編集できる（AI は見えない）。部員：一覧と集計を見るだけ。管理者：すべて（AI・アカウントの管理）')),
       h('div', { class: 'row' }, addBtn),
       status,
-      h('p', { class: 'field-note' }, '生徒用のアカウントは今後追加します（見るだけのアカウント）。'));
+      h('p', { class: 'field-note' }, '部員（見るだけ）のアカウントは、試合の一覧と集計（チーム全体の数字・全員の個人スタッツ）だけを見られます。記録の修正、振り返り、Q&A、AI、チェック項目、動画は見られません。部員みんなで1つを使うときは、パスワードを5回まちがえると15分ロックされる点に気をつけてください。'));
     details.addEventListener('toggle', () => {
       if (details.open) load();
     });

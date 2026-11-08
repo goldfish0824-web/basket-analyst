@@ -1,4 +1,5 @@
 // 画面の切り替え（#/ … のハッシュで）と起動処理。
+import { isViewer, viewerRoute } from './sync-core.js';
 import * as db from './db.js';
 import { h, replace, toast, applyTheme } from './ui.js';
 import { renderHome } from './views/home.js';
@@ -86,7 +87,16 @@ async function route() {
     cleanup = null;
   }
   document.querySelectorAll('.modal-backdrop').forEach((el) => el.remove());
-  const params = parse(location.hash);
+  let params = parse(location.hash);
+  // 部員（見るだけ）の端末は、試合の一覧と集計だけ
+  if (isViewer(app.settings)) {
+    const v = viewerRoute(params);
+    if (v !== params) {
+      location.replace(v.gameId ? `#/game/${encodeURIComponent(v.gameId)}/summary` : '#/');
+      return;
+    }
+    params = v;
+  }
   // 新しい版を受け取っていたら、ホーム画面に戻ったところで読み込み直す
   if (params.view === 'home' && isUpdateReady()) {
     location.reload();

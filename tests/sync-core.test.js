@@ -129,3 +129,23 @@ test('AI の結果を見られる人：ログインしていない端末と管�
   assert.equal(g.insights.length, 1, '元の試合は変えない');
   assert.equal(hasAiFields({ id: 'g2' }), false);
 });
+
+test('部員（見るだけ）：ログインの役割で見分け、開ける画面は一覧・集計・設定だけ', async () => {
+  const { isViewer, viewerRoute, canUseAi } = await import('../js/sync-core.js');
+  const login = (role) => ({ workerUrl: 'https://w.example', authToken: 't', authUser: { role } });
+  assert.equal(isViewer(login('student')), true);
+  assert.equal(isViewer(login('staff')), false);
+  assert.equal(isViewer(login('admin')), false);
+  assert.equal(isViewer({}), false);
+  assert.equal(canUseAi(login('student')), false);
+  const home = { view: 'home' };
+  assert.equal(viewerRoute(home), home);
+  const sum = { view: 'summary', gameId: 'g1' };
+  assert.equal(viewerRoute(sum), sum);
+  assert.deepEqual(viewerRoute({ view: 'record', gameId: 'g1' }), { view: 'summary', gameId: 'g1' });
+  assert.deepEqual(viewerRoute({ view: 'review', gameId: 'g1' }), { view: 'summary', gameId: 'g1' });
+  assert.deepEqual(viewerRoute({ view: 'quarter', gameId: 'g1', quarter: '2' }), { view: 'summary', gameId: 'g1' });
+  assert.deepEqual(viewerRoute({ view: 'setup', gameId: null }), { view: 'home' });
+  assert.deepEqual(viewerRoute({ view: 'qa' }), { view: 'home' });
+  assert.equal(viewerRoute({ view: 'settings' }).view, 'settings');
+});

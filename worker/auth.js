@@ -223,7 +223,19 @@ export async function userFromRequest(request, env, now = Date.now()) {
   return { ...publicUser(row), tokenHash: row.token_hash };
 }
 
-/** AI の問い合わせを使えるか：スタッフ用パスコード、またはスタッフ・管理者のログイン */
+/**
+ * AI の問い合わせを使えるか。'ok'／'admin_only'（ログインしているが管理者でない）／'unauthorized'。
+ * AI の結果は管理者だけが見るので、ログインしている人は管理者だけ。ログインしていなければスタッフ用パスコードで判断する。
+ */
+export async function aiAccess(request, env) {
+  const user = await userFromRequest(request, env);
+  if (user) return user.role === 'admin' ? 'ok' : 'admin_only';
+  const pass = request.headers.get('X-Staff-Pass') || '';
+  if (pass && env.STAFF_PASS && safeEqual(pass, env.STAFF_PASS)) return 'ok';
+  return 'unauthorized';
+}
+
+/** AI の問い合わせを使えるか：スタッフ用パスコード、またはスタッフ・管理者のログイン（古い判定。aiAccess を使う） */
 export async function isStaffRequest(request, env) {
   const pass = request.headers.get('X-Staff-Pass') || '';
   if (pass && env.STAFF_PASS && safeEqual(pass, env.STAFF_PASS)) return true;

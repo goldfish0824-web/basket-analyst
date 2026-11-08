@@ -198,3 +198,28 @@ export function connectHost(url) {
     return '';
   }
 }
+
+// ---- AI の結果を見られる人（管理者だけ） ----
+// AI特筆データ・対処の例・AIふりかえり（と、ふりかえりで AI に伝えたメモ）は、試合後の講評で使うので管理者だけが見る。
+// Worker も、管理者でないアカウントにはこれらを外して渡す（worker/sync.js の AI_GAME_KEYS と同じ）。
+
+export const AI_GAME_KEYS = ['insights', 'advice', 'reports', 'reportNote'];
+
+/** この端末で AI を使ったり結果を見たりできるか：ログインしていない端末（自分の端末）か、管理者でログイン */
+export function canUseAi(settings = {}) {
+  const loggedIn = !!(settings.authToken && settings.authUser && workerBase(settings.workerUrl));
+  return !loggedIn || settings.authUser.role === 'admin';
+}
+
+/** 試合から AI の結果を外したもの（元の試合は変えない） */
+export function stripAiFields(game) {
+  if (!game || typeof game !== 'object') return game;
+  const out = { ...game, insights: [], advice: [], reports: [] };
+  delete out.reportNote;
+  return out;
+}
+
+/** 試合に AI の結果が入っているか */
+export function hasAiFields(game) {
+  return !!game && ((game.insights || []).length > 0 || (game.advice || []).length > 0 || (game.reports || []).length > 0 || !!game.reportNote);
+}

@@ -4,7 +4,7 @@
 // 同期するとき：ログインしたとき・アプリを開いたとき・前面に出たとき・電波が戻ったとき・
 //               端末で記録を変えてから少したったとき（記録中に何度も通信しないよう20秒まとめる）・「今すぐ同期」
 import * as db from './db.js';
-import { buildPush, planApply, workerBase, syncErrorText } from './sync-core.js';
+import { buildPush, planApply, workerBase, syncErrorText, canUseAi } from './sync-core.js';
 
 const SYNC_DEBOUNCE_MS = 20000;
 const SYNC_MIN_INTERVAL_MS = 30000;
@@ -199,6 +199,8 @@ async function runSync({ force = false } = {}) {
       const plan = planApply(r.data.items, pending);
       if (r.data.items.some((it) => it.t === 's')) total.gotTeam = true;
       for (const id of await db.applyRemote(plan)) total.touched.add(id);
+      // AI の結果を管理者だけに渡す Worker なら、管理者でないこの端末に残っている AI の結果を消す
+      if (r.data.aiPolicy === 'admin_only' && !canUseAi(app.settings)) await db.stripAiLocal();
       total.received += r.data.items.length;
       if (plan.team) app.settings = await db.getSettings();
       state = { cursor: r.data.cursor, base, lastSyncAt: Date.now() };

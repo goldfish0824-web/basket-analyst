@@ -227,12 +227,16 @@ test('自チームのシュートは選手なしでは記録しない', () => {
   assert.equal(r.errors.length, 1);
 });
 
-test('同じ選手をもう一度押すと選択を外す', () => {
+test('同じ選手をもう一度押しても選んだまま（外すのは「選択を解除」）', () => {
   const r = run([
     { type: 'player', team: 'us', player: '4' },
     { type: 'player', team: 'us', player: '4' },
   ]);
-  assert.equal(r.state.sel, null);
+  assert.deepEqual(r.state.sel, { team: 'us', player: '4' });
+  // そのままプレーを押せば、その選手で記録される
+  const r2 = run([{ type: 'play', action: 'foul' }], { state: r.state });
+  assert.equal(r2.ops[0].draft.player, '4');
+  assert.equal(run([{ type: 'cancel' }], { state: r.state }).state.sel, null);
 });
 
 test('取消で入力途中の状態を消す（チームの表示は残す）', () => {

@@ -8,7 +8,7 @@ import { insightEndpoint, testConnection, reasonText } from '../ai.js';
 import { CHECK_METRICS, CHECK_EXAMPLES, DEFAULT_REWIND_SEC, targetText, parseBulkItems } from '../review.js';
 import { CLOCK_MODES, defaultClockRule } from '../clock.js';
 import { AI_EXCLUDE_ITEMS } from '../insights.js';
-import { extractWorkerUrl } from '../sync-core.js';
+import { extractWorkerUrl, canUseAi } from '../sync-core.js';
 import {
   installHint, exportAll, importBackup, createDemoGame, rosterEditor, lastBackupText,
 } from './shared.js';
@@ -191,7 +191,7 @@ export async function renderSettings(root, params, app) {
           }, '例を入れる'))),
       clockCard(app),
       playsCard(app),
-      aiExcludeCard(app),
+      canUseAi(app.settings) ? aiExcludeCard(app) : null,
       h('section', { class: 'card' },
         h('h2', null, '振り返り（動画）'),
         h('label', { class: 'field inline' },
@@ -211,7 +211,8 @@ export async function renderSettings(root, params, app) {
             toast('保存しました');
           },
         }, '保存'))),
-      h('section', { class: 'card' },
+      canUseAi(app.settings)
+        ? h('section', { class: 'card' },
         h('h2', null, 'AI接続（AI特筆データ）'),
         h('p', { class: 'field-note' }, 'クォーター終了画面の「AI特筆データ」で使います。未設定・通信できないときは、端末内の自動抽出（AIなし）で表示します。'),
         isLoggedIn(app.settings)
@@ -244,7 +245,8 @@ export async function renderSettings(root, params, app) {
             },
           }, '接続テスト')),
         aiStatus,
-        h('p', { class: 'field-note' }, 'URL とパスコードはこの端末の中だけに保存します（バックアップのファイルにも入れません）。Worker の用意は worker/README.md を見てください。')),
+        h('p', { class: 'field-note' }, 'URL とパスコードはこの端末の中だけに保存します（バックアップのファイルにも入れません）。Worker の用意は worker/README.md を見てください。'))
+        : null,
       updateCard(),
       h('section', { class: 'card' },
         h('h2', null, 'デモ試合'),

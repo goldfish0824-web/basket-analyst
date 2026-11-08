@@ -1,4 +1,5 @@
 // 集計画面（SPEC 4章）：ボックススコア、相手チーム、チーム指標、シュートチャート、クォーター別得点、守備隊形別
+import { canUseAi } from '../sync-core.js';
 import * as db from '../db.js';
 import { h, replace, toast, formatDate, icon } from '../ui.js';
 import { quarterLabel, sortNumbers, SHOT_TAGS, TEAM_LABEL, describeEvent } from '../model.js';
@@ -58,7 +59,8 @@ export async function renderSummary(root, params, app) {
       h('div', { class: 'head-actions' },
         h('button', { class: 'btn', type: 'button', onclick: () => exportGame(game) }, icon('share'), '書き出す'),
         h('a', { class: 'btn', href: `#/game/${game.id}/review` }, icon('film'), '振り返り'),
-        h('a', {
+        // AIふりかえりは管理者だけ
+        canUseAi(app.settings) ? h('a', {
           class: 'btn', href: `#/game/${game.id}/review`,
           onclick: () => {
             try {
@@ -67,7 +69,7 @@ export async function renderSummary(root, params, app) {
               // 保存できなくても振り返り画面は開く
             }
           },
-        }, icon('sparkle'), 'AIふりかえり'),
+        }, icon('sparkle'), 'AIふりかえり') : null,
         h('a', { class: 'btn primary', href: `#/game/${game.id}/record` }, icon('pencil'), '記録へ'))),
     h('div', { class: 'page wide' },
       h('div', { class: 'summary-top' },

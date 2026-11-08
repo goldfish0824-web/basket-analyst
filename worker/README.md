@@ -45,6 +45,8 @@ APIキーのページ（https://platform.claude.com/settings/keys ）で「Creat
 
 **アプリの更新で Worker のコードが変わったとき**は、手順3（`dashboard.js` をまるごと貼り直して「Deploy」）だけをやり直します。シークレットと変数はそのまま残ります。
 
+> 2026年11月の更新（AI の結果を管理者だけにする）で Worker のコードが変わりました。貼り直すまでは、スタッフの端末の画面で AI を出さないだけで、共有から AI の結果がスタッフの端末に届きます。
+
 ### 既存の中継 Worker に追加する（ダッシュボードで編集している場合）
 
 1. Cloudflare ダッシュボード → Workers & Pages → 既存の中継 Worker →「コードを編集」

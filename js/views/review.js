@@ -1,4 +1,5 @@
 // 振り返り画面（SPEC 6章）：プレー一覧 → 動画の該当場面へ、チェックポイント、集計・AI特筆データの再表示
+import { canUseAi } from '../sync-core.js';
 import * as db from '../db.js';
 import { h, replace, toast, formatDate, formatDateTime, icon } from '../ui.js';
 import { describeEvent, quarterLabel, sortNumbers, TEAM_LABEL, uuid } from '../model.js';
@@ -49,7 +50,9 @@ export async function renderReview(root, params, app) {
   const events = await db.listEvents(game.id);
   const names = Object.fromEntries((game.roster || []).map((p) => [String(p.number), p.name]));
   const score = scoreOf(events);
-  let tab = TABS.some((t) => t.key === sessionGet('reviewTab')) ? sessionGet('reviewTab') : 'plays';
+  // AI特筆データ・AIふりかえりは管理者だけ（ログインしていない自分の端末も見られる）
+  const tabs = canUseAi(app.settings) ? TABS : TABS.filter((t) => t.key !== 'ai' && t.key !== 'report');
+  let tab = tabs.some((t) => t.key === sessionGet('reviewTab')) ? sessionGet('reviewTab') : 'plays';
 
   const saveGame = async () => {
     try {
@@ -64,7 +67,7 @@ export async function renderReview(root, params, app) {
   const content = h('div', { class: 'review-content' });
 
   function drawTabs() {
-    replace(tabBar, TABS.map((t) => h('button', {
+    replace(tabBar, tabs.map((t) => h('button', {
       class: ['tab', tab === t.key && 'on'], type: 'button', role: 'tab', 'aria-selected': String(tab === t.key),
       onclick: () => {
         tab = t.key;

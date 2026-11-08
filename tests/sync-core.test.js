@@ -112,3 +112,20 @@ test('接続先：貼り付けた文から URL を取り出す、送るメッセ
   assert.equal(connectHost(url), 'basket.example.workers.dev');
   assert.equal(connectHost(''), '');
 });
+
+test('AI の結果を見られる人：ログインしていない端末と管理者だけ。管理者でない端末の書き出し用に外せる', async () => {
+  const { canUseAi, stripAiFields, hasAiFields, AI_GAME_KEYS } = await import('../js/sync-core.js');
+  const login = (role) => ({ workerUrl: 'https://w.example', authToken: 't', authUser: { role } });
+  assert.equal(canUseAi({}), true, 'ログインしていない（自分の端末）');
+  assert.equal(canUseAi(login('admin')), true);
+  assert.equal(canUseAi(login('staff')), false);
+  assert.equal(canUseAi(login('student')), false);
+  assert.deepEqual(AI_GAME_KEYS, ['insights', 'advice', 'reports', 'reportNote']);
+  const g = { id: 'g1', opponent: 'x', insights: [{ q: 1 }], advice: [{}], reports: [{}], reportNote: 'メモ', roster: [] };
+  assert.equal(hasAiFields(g), true);
+  const s = stripAiFields(g);
+  assert.deepEqual(s, { id: 'g1', opponent: 'x', insights: [], advice: [], reports: [], roster: [] });
+  assert.equal(hasAiFields(s), false);
+  assert.equal(g.insights.length, 1, '元の試合は変えない');
+  assert.equal(hasAiFields({ id: 'g2' }), false);
+});

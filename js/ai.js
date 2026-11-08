@@ -14,6 +14,7 @@ export const REASON_TEXT = {
   timeout: '10秒で応答がありません',
   unauthorized: 'スタッフ用パスコードが違います',
   forbidden: 'この URL からの接続が Worker で許可されていません',
+  admin_only: 'AIは管理者だけが使えます',
   http: 'AIの中継でエラーが起きました',
   bad_response: 'AIの応答を読めません',
   empty: 'AIの応答に使える行がありません',
@@ -63,7 +64,16 @@ export async function postToWorker(settings, payload, opts = {}) {
       signal: ctrl.signal,
     });
     if (res.status === 401) return { ok: false, reason: 'unauthorized', status: 401 };
-    if (res.status === 403) return { ok: false, reason: 'forbidden', status: 403 };
+    if (res.status === 403) {
+      // 管理者でないログイン（AI の結果は管理者だけ）か、許可していない URL からの接続
+      let err = '';
+      try {
+        err = (await res.clone().json()).error || '';
+      } catch {
+        // 本文が読めなければ、許可していない URL として扱う
+      }
+      return { ok: false, reason: err === 'admin_only' ? 'admin_only' : 'forbidden', status: 403 };
+    }
     if (!res.ok) return { ok: false, reason: 'http', status: res.status };
     let data;
     try {

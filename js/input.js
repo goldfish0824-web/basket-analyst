@@ -117,8 +117,8 @@ export function step(state, cmd, ctx) {
         return { state: { ...s, sel: who, sheet: 'fg' }, ops: [] };
       }
       if (s.action) return recordAction(s, s.action, who, ctx);
-      const same = s.sel && s.sel.team === who.team && s.sel.player === who.player;
-      return { state: { ...s, sel: same ? null : who }, ops: [] };
+      // 同じ選手をもう一度押しても選んだまま（押せたか分からずにもう一度押して、外れてしまわないように）。外すのは「選択を解除」
+      return { state: { ...s, sel: who }, ops: [] };
     }
 
     case 'play': {

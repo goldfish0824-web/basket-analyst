@@ -1,7 +1,7 @@
 // 端末内の保存（IndexedDB）。1イベントごとに書き込む。
 // 記録の共有（同期）のため、試合・記録・チームの設定を変えたら「送る予定」（outbox）に1件入れる（sync-core.js 参照）。
 import { DEFAULT_DEFENSES } from './model.js';
-import { outboxKey, teamSettingsChanged, isDemoGame } from './sync-core.js';
+import { outboxKey, teamSettingsChanged, isDemoGame, hasAiFields, stripAiFields } from './sync-core.js';
 
 const DB_NAME = 'basket-analyst';
 const DB_VERSION = 2;
@@ -95,6 +95,26 @@ export async function putGame(game) {
   queueGame(tx, game.id, now);
   await done(tx);
   changed();
+}
+
+/**
+ * 管理者でない端末に残っている AI の結果（AI特筆データ・対処の例・AIふりかえり）を消す。
+ * 共有には送らない（Worker が管理者の AI の結果を守るので、送る必要がない）。戻り値：消した試合の数
+ */
+export async function stripAiLocal() {
+  const db = await open();
+  const tx = db.transaction('games', 'readwrite');
+  const store = tx.objectStore('games');
+  let n = 0;
+  store.getAll().onsuccess = (ev) => {
+    for (const g of ev.target.result) {
+      if (!hasAiFields(g)) continue;
+      store.put(stripAiFields(g));
+      n += 1;
+    }
+  };
+  await done(tx);
+  return n;
 }
 
 export async function deleteGame(id) {

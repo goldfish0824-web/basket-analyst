@@ -24,6 +24,51 @@ export const MAX_GAME_BYTES = 400000;
 export const MAX_EVENT_BYTES = 8000;
 export const MAX_TEAM_BYTES = 200000;
 
+// AI特筆データ・対処の例・AIふりかえり（と、ふりかえりで AI に伝えたメモ）は管理者だけが見る（js/sync-core.js と同じ）
+export const AI_GAME_KEYS = ['insights', 'advice', 'reports', 'reportNote'];
+// 管理者だけが変えられるチームの設定（AI に伝えない項目）
+export const ADMIN_TEAM_KEYS = ['aiExclude'];
+
+function parseObject(text) {
+  try {
+    const v = JSON.parse(text);
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 管理者でない人に渡す試合：AI の結果を外す */
+export function stripAiData(data) {
+  const g = parseObject(data);
+  if (!g) return data;
+  for (const k of AI_GAME_KEYS) delete g[k];
+  return JSON.stringify(g);
+}
+
+/**
+ * 管理者でない人が送ってきた試合：送られてきた AI の結果は使わず、共有に保存してある AI の結果を残す
+ * （スタッフの端末で名簿などを直しても、管理者の AI の結果が消えないように）
+ */
+export function keepAiData(incoming, existing) {
+  const g = parseObject(incoming);
+  if (!g) return incoming;
+  for (const k of AI_GAME_KEYS) delete g[k];
+  const old = existing ? parseObject(existing) : null;
+  if (old) for (const k of AI_GAME_KEYS) if (old[k] !== undefined) g[k] = old[k];
+  return JSON.stringify(g);
+}
+
+/** 管理者でない人が送ってきたチームの設定：管理者だけが変えられる項目は、共有に保存してある値を残す */
+export function keepAdminTeamKeys(incoming, existing) {
+  const t = parseObject(incoming);
+  if (!t) return incoming;
+  for (const k of ADMIN_TEAM_KEYS) delete t[k];
+  const old = existing ? parseObject(existing) : null;
+  if (old) for (const k of ADMIN_TEAM_KEYS) if (old[k] !== undefined) t[k] = old[k];
+  return JSON.stringify(t);
+}
+
 async function readJson(request) {
   try {
     return await request.json();
@@ -321,11 +366,28 @@ async function sync(request, env, cors) {
   const cursor = Number.isInteger(body.cursor) && body.cursor >= 0 ? body.cursor : 0;
   const limit = Math.min(MAX_PULL_LIMIT, Number.isInteger(body.limit) && body.limit > 0 ? body.limit : DEFAULT_PULL_LIMIT);
   const clean = cleanPush(body.push);
+  const isAdmin = user.role === 'admin';
+  if (!isAdmin) {
+    // 管理者でない人の変更では、AI の結果と管理者だけの設定を、共有に保存してある値のまま残す
+    const ids = clean.games.filter((g) => !g.deleted).map((g) => g.id);
+    if (ids.length) {
+      const { results: rows } = await env.DB.prepare('SELECT id, data FROM games WHERE id IN (SELECT value FROM json_each(?1))')
+        .bind(JSON.stringify(ids)).all();
+      const saved = new Map(rows.map((r) => [r.id, r.data]));
+      for (const g of clean.games) if (!g.deleted) g.data = keepAiData(g.data, saved.get(g.id));
+    }
+    if (clean.team) {
+      const row = await env.DB.prepare("SELECT data FROM team WHERE key = 'settings'").first();
+      clean.team.data = keepAdminTeamKeys(clean.team.data, row ? row.data : null);
+    }
+  }
   const stmts = pushStatements(env.DB, clean, user.id);
   if (stmts.length) await env.DB.batch(stmts);
   const { results } = await pullStatement(env.DB, cursor, limit).all();
   const items = results.map((r) => {
-    const item = { t: r.t, id: r.id, data: r.data, deleted: !!r.deleted, rev: r.rev };
+    // 管理者でない人には、試合の AI の結果を外して渡す
+    const data = !isAdmin && r.t === 'g' && !r.deleted ? stripAiData(r.data) : r.data;
+    const item = { t: r.t, id: r.id, data, deleted: !!r.deleted, rev: r.rev };
     if (r.t === 'e') item.gameId = r.game_id;
     return item;
   });
@@ -333,6 +395,8 @@ async function sync(request, env, cors) {
     cursor: items.length ? items[items.length - 1].rev : cursor,
     items,
     more: items.length === limit,
+    // この Worker は AI の結果を管理者だけに渡す（アプリはこれを見て、管理者でない端末に残っている AI の結果を消す）
+    aiPolicy: 'admin_only',
     applied: { games: clean.games.length, events: clean.events.length, team: clean.team ? 1 : 0, rejected: clean.rejected },
   }, 200, cors);
 }

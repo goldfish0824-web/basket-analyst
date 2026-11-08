@@ -1,5 +1,6 @@
 // クォーター終了画面（SPEC 5-2）：そのクォーターと累計のスコア、チームファウル、ファウルトラブルの選手、AI特筆データ
 // タイムアウト中（クォーターの途中）にも同じ画面で、その時点までの数字を出す。
+import { canUseAi } from '../sync-core.js';
 import * as db from '../db.js';
 import { h, replace, toast, formatDate, icon } from '../ui.js';
 import { quarterState, quarterLabel, uuid } from '../model.js';
@@ -281,14 +282,18 @@ export async function renderQuarter(root, params, app) {
       h('div', { class: 'head-actions' }, h('a', { class: 'btn', href: `#/game/${game.id}/summary` }, icon('chart'), '集計'))),
     h('div', { class: 'page wide quarter-page' },
       scoreCard,
-      h('div', { class: 'q-col' },
-        h('section', { class: 'card q-ai' },
-          h('div', { class: 'card-head' }, h('h2', null, 'AI特筆データ'), runBtn),
-          statusEl,
-          resultEl,
-          historyEl,
-          candidateList,
-          h('p', { class: 'field-note' }, '数字はすべて端末で計算しています。AIには背番号と数字だけを送り、選手の名前は送りません。')),
-        adviceCard)),
+      // AI特筆データ・対処の例は管理者だけ（ログインしていない自分の端末も見られる）
+      canUseAi(app.settings)
+        ? h('div', { class: 'q-col' },
+          h('section', { class: 'card q-ai' },
+            h('div', { class: 'card-head' }, h('h2', null, 'AI特筆データ'), runBtn),
+            statusEl,
+            resultEl,
+            historyEl,
+            candidateList,
+            h('p', { class: 'field-note' }, '数字はすべて端末で計算しています。AIには背番号と数字だけを送り、選手の名前は送りません。')),
+          adviceCard)
+        : h('div', { class: 'q-col' },
+          h('section', { class: 'card' }, h('p', { class: 'muted' }, 'AI特筆データと対処の例は、管理者だけが見られます。')))),
   );
 }

@@ -209,3 +209,43 @@ test('同期：1回の問い合わせでデータベースに出す命令は少�
   assert.ok(env.DB.queries - before <= 10, `${env.DB.queries - before} 回`);
   assert.equal((await r.json()).items.length, 301);
 });
+
+test('AI の結果は管理者だけ：スタッフには外して渡し、スタッフが送っても消えない。スタッフの AI は 403', async () => {
+  const env = makeEnv();
+  const admin = (await setupAdmin(env)).token;
+  await call(env, '/basket/users', { token: admin, body: { loginId: 'sato', displayName: '佐藤', password: 'password-456', role: 'staff' } });
+  const staff = (await (await call(env, '/basket/auth/login', { body: { loginId: 'sato', password: 'password-456' } })).json()).token;
+  const ai = { insights: [{ quarter: 2, items: [{ line: '相手#7、右ドライブで5本中4本成功' }] }], advice: [{ quarter: 2 }], reports: [{ summary: '講評' }], reportNote: '県大会' };
+  const game = (extra) => JSON.stringify({ id: 'g1', opponent: '架空高校', roster: [{ number: '4', name: 'A' }], ...extra });
+  // 管理者が AI の結果つきで送る（チームの設定も）
+  let res = await call(env, '/basket/sync', { token: admin, body: { cursor: 0, push: { games: [{ id: 'g1', data: game(ai), updatedAt: 100 }], team: { data: JSON.stringify({ defenses: ['マンツー'], aiExclude: { rebounds: true } }), updatedAt: 100 } } } });
+  let body = await res.json();
+  assert.equal(body.aiPolicy, 'admin_only');
+  assert.deepEqual(JSON.parse(body.items.find((i) => i.t === 'g').data).insights, ai.insights, '管理者には AI の結果も渡す');
+  // スタッフが受け取る：AI の結果はない
+  body = await (await call(env, '/basket/sync', { token: staff, body: { cursor: 0 } })).json();
+  const got = JSON.parse(body.items.find((i) => i.t === 'g').data);
+  for (const k of ['insights', 'advice', 'reports', 'reportNote']) assert.equal(k in got, false, k);
+  assert.equal(got.opponent, '架空高校');
+  // スタッフが名簿を直して送る（AI の結果を消そうとしたり、勝手に入れようとしたりしても無視）。チームの設定の aiExclude も変えられない
+  const staffGame = game({ roster: [{ number: '4', name: 'A' }, { number: '5', name: 'B' }], insights: [{ quarter: 9, items: [{ line: 'にせもの' }] }] });
+  await call(env, '/basket/sync', { token: staff, body: { cursor: body.cursor, push: { games: [{ id: 'g1', data: staffGame, updatedAt: 200 }], team: { data: JSON.stringify({ defenses: ['マンツー', '2-3ゾーン'], aiExclude: { rebounds: false } }), updatedAt: 200 } } } });
+  // 管理者が受け取る：名簿は新しく、AI の結果は管理者のもののまま。aiExclude も管理者の値
+  body = await (await call(env, '/basket/sync', { token: admin, body: { cursor: 0 } })).json();
+  const g = JSON.parse(body.items.find((i) => i.t === 'g').data);
+  assert.equal(g.roster.length, 2);
+  assert.deepEqual(g.insights, ai.insights);
+  assert.deepEqual(g.reports, ai.reports);
+  assert.equal(g.reportNote, '県大会');
+  const team = JSON.parse(body.items.find((i) => i.t === 's').data);
+  assert.deepEqual(team.defenses, ['マンツー', '2-3ゾーン']);
+  assert.deepEqual(team.aiExclude, { rebounds: true });
+  // AI の問い合わせ：スタッフのログインは 403、管理者・パスコードは通る（AI の中身は呼ばずに形の確認だけ）
+  const q = { kind: 'quarter_insight', quarterEnded: 0, score: { us: 0, opp: 0 }, candidates: [] };
+  const sr = await call(env, '/basket/insight', { token: staff, body: q });
+  assert.equal(sr.status, 403);
+  assert.deepEqual(await sr.json(), { error: 'admin_only' });
+  assert.equal((await call(env, '/basket/insight', { token: staff, pass: 'staff-pass-1', body: q })).status, 403, 'スタッフのログインならパスコードがあっても使えない');
+  assert.notEqual((await call(env, '/basket/insight', { token: admin, body: q })).status, 403);
+  assert.notEqual((await call(env, '/basket/insight', { pass: 'staff-pass-1', body: q })).status, 401);
+});

@@ -2,6 +2,7 @@
 // 左：ハーフコート図＋直近10件のログ
 // 右：自チーム（コートの5人とベンチ）と相手の選手ボタンを同時に表示、続きのプレー、プレーボタン
 // 上：試合時計、スコア、チームファウル、守備隊形、取り消し、クォーター終了
+import { canUseAi } from '../sync-core.js';
 import * as db from '../db.js';
 import { h, replace, toast, modal, confirmDialog, icon } from '../ui.js';
 import {
@@ -43,6 +44,8 @@ export async function renderRecord(root, params, app) {
   let lastSave = Promise.resolve();
   const starters = { us: null, opp: null }; // 試合開始前に選んでいる先発（背番号の配列）
   const summaryHref = (q) => `#/game/${game.id}/quarter/${q}`;
+  // AI特筆データは管理者だけ（管理者でない人には「のまとめ」とだけ出す）
+  const aiLabel = () => (canUseAi(app.settings) ? '・AI特筆データ' : '');
 
   // ---- 保存 ----
   const saveError = (err) => {
@@ -473,9 +476,11 @@ export async function renderRecord(root, params, app) {
     players.classList.toggle('waiting', !!(input.loc || input.action) && !input.sel);
   }
 
-  // ---- ドラッグで交代（ベンチ ⇄ コート） ----
+  // ---- コート・ベンチの選手ボタン：タップで選ぶ／ドラッグで交代（ベンチ ⇄ コート） ----
+  // 指が少しすべっても「タップ」として選ぶ（ボタンの外まで指を動かしたときだけドラッグにする）。
+  // 選ぶのは指を離したとき（pointerup）。ブラウザの click は使わない（二重に選ばないように。キーボードの操作だけ受ける）。
+  const DRAG_MARGIN = 10; // ボタンの外へ何 px 出たらドラッグにするか
   let drag = null;
-  let suppressClick = null; // ドラッグを離した位置と時刻（その場所の「タップ」を選手の選択にしない）
   function dragTarget(x, y) {
     const el = document.elementFromPoint(x, y);
     const btn = el && el.closest ? el.closest('.pl-btn[data-group]') : null;
@@ -485,27 +490,33 @@ export async function renderRecord(root, params, app) {
   function endDrag() {
     if (!drag) return;
     if (drag.ghost) drag.ghost.remove();
-    drag.btn.classList.remove('dragging');
+    drag.btn.classList.remove('dragging', 'pressing');
     players.classList.remove('drag-on', 'drag-us', 'drag-opp');
     for (const b of players.querySelectorAll('.drop-hover')) b.classList.remove('drop-hover');
     drag = null;
   }
+  const outside = (r, x, y) => x < r.left - DRAG_MARGIN || x > r.right + DRAG_MARGIN || y < r.top - DRAG_MARGIN || y > r.bottom + DRAG_MARGIN;
   players.addEventListener('pointerdown', (ev) => {
     const btn = ev.target.closest('.pl-btn[data-group]');
     if (!btn || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
-    drag = { btn, team: btn.dataset.team, group: btn.dataset.group, number: btn.dataset.number, x: ev.clientX, y: ev.clientY, id: ev.pointerId, ghost: null };
+    if (drag) endDrag();
+    drag = {
+      btn, team: btn.dataset.team, group: btn.dataset.group, number: btn.dataset.number,
+      id: ev.pointerId, rect: btn.getBoundingClientRect(), ghost: null,
+    };
+    btn.classList.add('pressing');
   });
   const onMove = (ev) => {
     if (!drag || ev.pointerId !== drag.id) return;
-    const dx = ev.clientX - drag.x;
-    const dy = ev.clientY - drag.y;
     if (!drag.ghost) {
-      if (Math.hypot(dx, dy) < 12) return;
-      const r = drag.btn.getBoundingClientRect();
+      if (!outside(drag.rect, ev.clientX, ev.clientY)) return;
+      const r = drag.rect;
       drag.ghost = drag.btn.cloneNode(true);
       drag.ghost.classList.add('drag-ghost');
+      drag.ghost.classList.remove('pressing');
       Object.assign(drag.ghost.style, { width: `${r.width}px`, height: `${r.height}px` });
       document.body.appendChild(drag.ghost);
+      drag.btn.classList.remove('pressing');
       drag.btn.classList.add('dragging');
       players.classList.add('drag-on', `drag-${drag.team}`);
     }
@@ -516,12 +527,15 @@ export async function renderRecord(root, params, app) {
   };
   const onUp = (ev) => {
     if (!drag || ev.pointerId !== drag.id) return;
-    const moved = !!drag.ghost;
-    const target = moved ? dragTarget(ev.clientX, ev.clientY) : null;
+    const dragging = !!drag.ghost;
+    const target = dragging ? dragTarget(ev.clientX, ev.clientY) : null;
     const from = { team: drag.team, group: drag.group, number: drag.number };
     endDrag();
-    if (!moved) return;
-    suppressClick = { x: ev.clientX, y: ev.clientY, until: Date.now() + 500 };
+    if (!dragging) {
+      // タップ：選手を選ぶ（指が少しすべっていても）
+      dispatch({ type: 'player', team: from.team, player: from.number });
+      return;
+    }
     if (!target) return;
     const outNum = from.group === 'court' ? from.number : target.dataset.number;
     const inNum = from.group === 'court' ? target.dataset.number : from.number;
@@ -531,13 +545,11 @@ export async function renderRecord(root, params, app) {
   document.addEventListener('pointermove', onMove);
   document.addEventListener('pointerup', onUp);
   document.addEventListener('pointercancel', onCancel);
-  // ドラッグのあとの「タップ」は選手の選択にしない
+  // コート・ベンチの選手ボタンは、上の pointerup で選ぶ。ブラウザの click は無視する（キーボードの操作＝detail 0 だけ通す）
   players.addEventListener('click', (ev) => {
-    const s = suppressClick;
-    if (s && Date.now() < s.until && Math.hypot(ev.clientX - s.x, ev.clientY - s.y) < 40) {
+    if (ev.detail !== 0 && ev.target.closest && ev.target.closest('.pl-btn[data-group]')) {
       ev.stopPropagation();
       ev.preventDefault();
-      suppressClick = null;
     }
   }, true);
 
@@ -802,7 +814,7 @@ export async function renderRecord(root, params, app) {
     replace(context,
       idle && lastMessage ? h('p', { class: 'ctx-done big' }, lastMessage) : null,
       afterTimeout
-        ? h('a', { class: 'btn summary-link', href: summaryHref(last.quarter) }, `${quarterLabel(last.quarter)}のここまでのまとめ・AI特筆データ`)
+        ? h('a', { class: 'btn summary-link', href: summaryHref(last.quarter) }, `${quarterLabel(last.quarter)}のここまでのまとめ${aiLabel()}`)
         : h('p', { class: 'hint-text' }, hintFor(input)));
   }
 
@@ -924,7 +936,7 @@ export async function renderRecord(root, params, app) {
       h('div', { class: 'row center' },
         qs.phase === 'break' && game.roster.length ? subButton('us') : null,
         qs.phase === 'break' ? subButton('opp') : null,
-        qs.phase === 'break' ? h('a', { class: 'btn', href: summaryHref(qs.quarter) }, `${quarterLabel(qs.quarter)}のまとめ・AI特筆データ`) : null,
+        qs.phase === 'break' ? h('a', { class: 'btn', href: summaryHref(qs.quarter) }, `${quarterLabel(qs.quarter)}のまとめ${aiLabel()}`) : null,
         qs.phase === 'break' ? h('a', { class: 'btn', href: `#/game/${game.id}/summary` }, '集計を見る') : null,
         h('a', { class: 'btn', href: '#/' }, 'ホームへ'))));
   }
@@ -1068,7 +1080,7 @@ export async function renderRecord(root, params, app) {
       body: h('div', { class: 'menu-list' },
         qs.phase !== 'pre'
           ? h('a', { class: 'btn', href: summaryHref(qs.quarter), onclick: () => close() },
-            `${quarterLabel(qs.quarter)}のまとめ・AI特筆データ${qs.phase === 'live' ? '（ここまで）' : ''}`)
+            `${quarterLabel(qs.quarter)}のまとめ${aiLabel()}${qs.phase === 'live' ? '（ここまで）' : ''}`)
           : null,
         h('a', { class: 'btn', href: `#/game/${game.id}/summary`, onclick: () => close() }, '集計を見る'),
         h('button', { class: 'btn', type: 'button', onclick: () => { close(); openClockRule(); } }, `時計の進め方（いま：${normalizeClockRule(rule()).mode === 'official' ? '正式' : 'ランニング'}）`),

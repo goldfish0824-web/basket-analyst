@@ -1,4 +1,5 @@
 // 複数の画面で使う処理：ホーム画面追加の案内、バックアップ、デモ試合
+import { canUseAi, stripAiFields } from '../sync-core.js';
 import * as db from '../db.js';
 import { h, toast, isStandalone, saveJsonFile, pickFile, readFileText, confirmDialog } from '../ui.js';
 import { buildBackup, backupFileName, parseBackup } from '../backup.js';
@@ -34,7 +35,9 @@ export function lastBackupText(ms) {
 
 /** 端末内の全データ（試合・記録・設定）を JSON で書き出す */
 export async function exportAll(app) {
-  const [games, events] = await Promise.all([db.listGames(), db.listAllEvents()]);
+  const [all, events] = await Promise.all([db.listGames(), db.listAllEvents()]);
+  // 管理者でない端末は、AI の結果を書き出さない
+  const games = canUseAi(app.settings) ? all : all.map(stripAiFields);
   // 端末ごとの状態と、AI接続の URL・パスコードは書き出さない
   const { lastBackupAt, installHintDismissed, workerUrl, staffPass, theme, authToken, authUser, ...settingsToSave } = app.settings;
   const data = buildBackup({ games, events, settings: settingsToSave });
@@ -48,7 +51,8 @@ export async function exportAll(app) {
 
 export async function exportGame(game) {
   const events = await db.listEvents(game.id);
-  const ok = await saveJsonFile(buildBackup({ games: [game], events }), backupFileName([game]));
+  const out = canUseAi(await db.getSettings()) ? game : stripAiFields(game);
+  const ok = await saveJsonFile(buildBackup({ games: [out], events }), backupFileName([game]));
   if (ok) toast('この試合を書き出しました');
   return ok;
 }

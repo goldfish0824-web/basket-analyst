@@ -227,7 +227,19 @@ export async function userFromRequest(request, env, now = Date.now()) {
   return { ...publicUser(row), tokenHash: row.token_hash };
 }
 
-/** AI の問い合わせを使えるか：スタッフ用パスコード、またはスタッフ・管理者のログイン */
+/**
+ * AI の問い合わせを使えるか。'ok'／'admin_only'（ログインしているが管理者でない）／'unauthorized'。
+ * AI の結果は管理者だけが見るので、ログインしている人は管理者だけ。ログインしていなければスタッフ用パスコードで判断する。
+ */
+export async function aiAccess(request, env) {
+  const user = await userFromRequest(request, env);
+  if (user) return user.role === 'admin' ? 'ok' : 'admin_only';
+  const pass = request.headers.get('X-Staff-Pass') || '';
+  if (pass && env.STAFF_PASS && safeEqual(pass, env.STAFF_PASS)) return 'ok';
+  return 'unauthorized';
+}
+
+/** AI の問い合わせを使えるか：スタッフ用パスコード、またはスタッフ・管理者のログイン（古い判定。aiAccess を使う） */
 export async function isStaffRequest(request, env) {
   const pass = request.headers.get('X-Staff-Pass') || '';
   if (pass && env.STAFF_PASS && safeEqual(pass, env.STAFF_PASS)) return true;
@@ -262,7 +274,8 @@ export async function clearFailures(db, loginId) {
 //
 //   ルート       POST /basket/insight（ブラウザからの OPTIONS も受ける）
 //                本文の kind で分ける：quarter_insight（AI特筆データ）／advice（対処の例を聞く）／game_report（AIふりかえり）
-//   認証         ヘッダー X-Staff-Pass ＝ シークレット STAFF_PASS、またはスタッフのログイン（Authorization: Bearer。違えば 401）
+//   認証         ヘッダー X-Staff-Pass ＝ シークレット STAFF_PASS、または管理者のログイン（Authorization: Bearer）。
+//                違えば 401、管理者でないログインは 403（admin_only。AI の結果は管理者だけが見る）
 //   CORS         既定は https://goldfish0824-web.github.io のみ。変数 ALLOWED_ORIGINS（カンマ区切り）で変更
 //   モデル       変数 MODEL（既定 claude-haiku-5-5。品質を上げたいときは claude-sonnet-5-5）
 //                対処の例だけ別のモデルにするときは変数 ADVICE_MODEL
@@ -769,7 +782,9 @@ export async function handleInsight(request, env = {}, opts = {}) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, cors);
 
-  if (!(await isStaffRequest(request, env))) return json({ error: 'unauthorized' }, 401, cors);
+  const access = await aiAccess(request, env);
+  if (access === 'admin_only') return json({ error: 'admin_only' }, 403, cors);
+  if (access !== 'ok') return json({ error: 'unauthorized' }, 401, cors);
 
   let payload;
   try {
@@ -835,6 +850,51 @@ export const MAX_PULL_LIMIT = 1000;
 export const MAX_GAME_BYTES = 400000;
 export const MAX_EVENT_BYTES = 8000;
 export const MAX_TEAM_BYTES = 200000;
+
+// AI特筆データ・対処の例・AIふりかえり（と、ふりかえりで AI に伝えたメモ）は管理者だけが見る（js/sync-core.js と同じ）
+export const AI_GAME_KEYS = ['insights', 'advice', 'reports', 'reportNote'];
+// 管理者だけが変えられるチームの設定（AI に伝えない項目）
+export const ADMIN_TEAM_KEYS = ['aiExclude'];
+
+function parseObject(text) {
+  try {
+    const v = JSON.parse(text);
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 管理者でない人に渡す試合：AI の結果を外す */
+export function stripAiData(data) {
+  const g = parseObject(data);
+  if (!g) return data;
+  for (const k of AI_GAME_KEYS) delete g[k];
+  return JSON.stringify(g);
+}
+
+/**
+ * 管理者でない人が送ってきた試合：送られてきた AI の結果は使わず、共有に保存してある AI の結果を残す
+ * （スタッフの端末で名簿などを直しても、管理者の AI の結果が消えないように）
+ */
+export function keepAiData(incoming, existing) {
+  const g = parseObject(incoming);
+  if (!g) return incoming;
+  for (const k of AI_GAME_KEYS) delete g[k];
+  const old = existing ? parseObject(existing) : null;
+  if (old) for (const k of AI_GAME_KEYS) if (old[k] !== undefined) g[k] = old[k];
+  return JSON.stringify(g);
+}
+
+/** 管理者でない人が送ってきたチームの設定：管理者だけが変えられる項目は、共有に保存してある値を残す */
+export function keepAdminTeamKeys(incoming, existing) {
+  const t = parseObject(incoming);
+  if (!t) return incoming;
+  for (const k of ADMIN_TEAM_KEYS) delete t[k];
+  const old = existing ? parseObject(existing) : null;
+  if (old) for (const k of ADMIN_TEAM_KEYS) if (old[k] !== undefined) t[k] = old[k];
+  return JSON.stringify(t);
+}
 
 async function readJson(request) {
   try {
@@ -1133,11 +1193,28 @@ async function sync(request, env, cors) {
   const cursor = Number.isInteger(body.cursor) && body.cursor >= 0 ? body.cursor : 0;
   const limit = Math.min(MAX_PULL_LIMIT, Number.isInteger(body.limit) && body.limit > 0 ? body.limit : DEFAULT_PULL_LIMIT);
   const clean = cleanPush(body.push);
+  const isAdmin = user.role === 'admin';
+  if (!isAdmin) {
+    // 管理者でない人の変更では、AI の結果と管理者だけの設定を、共有に保存してある値のまま残す
+    const ids = clean.games.filter((g) => !g.deleted).map((g) => g.id);
+    if (ids.length) {
+      const { results: rows } = await env.DB.prepare('SELECT id, data FROM games WHERE id IN (SELECT value FROM json_each(?1))')
+        .bind(JSON.stringify(ids)).all();
+      const saved = new Map(rows.map((r) => [r.id, r.data]));
+      for (const g of clean.games) if (!g.deleted) g.data = keepAiData(g.data, saved.get(g.id));
+    }
+    if (clean.team) {
+      const row = await env.DB.prepare("SELECT data FROM team WHERE key = 'settings'").first();
+      clean.team.data = keepAdminTeamKeys(clean.team.data, row ? row.data : null);
+    }
+  }
   const stmts = pushStatements(env.DB, clean, user.id);
   if (stmts.length) await env.DB.batch(stmts);
   const { results } = await pullStatement(env.DB, cursor, limit).all();
   const items = results.map((r) => {
-    const item = { t: r.t, id: r.id, data: r.data, deleted: !!r.deleted, rev: r.rev };
+    // 管理者でない人には、試合の AI の結果を外して渡す
+    const data = !isAdmin && r.t === 'g' && !r.deleted ? stripAiData(r.data) : r.data;
+    const item = { t: r.t, id: r.id, data, deleted: !!r.deleted, rev: r.rev };
     if (r.t === 'e') item.gameId = r.game_id;
     return item;
   });
@@ -1145,6 +1222,8 @@ async function sync(request, env, cors) {
     cursor: items.length ? items[items.length - 1].rev : cursor,
     items,
     more: items.length === limit,
+    // この Worker は AI の結果を管理者だけに渡す（アプリはこれを見て、管理者でない端末に残っている AI の結果を消す）
+    aiPolicy: 'admin_only',
     applied: { games: clean.games.length, events: clean.events.length, team: clean.team ? 1 : 0, rejected: clean.rejected },
   }, 200, cors);
 }

@@ -3,7 +3,8 @@
 //
 //   ルート       POST /basket/insight（ブラウザからの OPTIONS も受ける）
 //                本文の kind で分ける：quarter_insight（AI特筆データ）／advice（対処の例を聞く）／game_report（AIふりかえり）
-//   認証         ヘッダー X-Staff-Pass ＝ シークレット STAFF_PASS、またはスタッフのログイン（Authorization: Bearer。違えば 401）
+//   認証         ヘッダー X-Staff-Pass ＝ シークレット STAFF_PASS、または管理者のログイン（Authorization: Bearer）。
+//                違えば 401、管理者でないログインは 403（admin_only。AI の結果は管理者だけが見る）
 //   CORS         既定は https://goldfish0824-web.github.io のみ。変数 ALLOWED_ORIGINS（カンマ区切り）で変更
 //   モデル       変数 MODEL（既定 claude-haiku-5-5。品質を上げたいときは claude-sonnet-5-5）
 //                対処の例だけ別のモデルにするときは変数 ADVICE_MODEL
@@ -14,7 +15,7 @@
 //                ふりかえり {"summary":"…","good":[…],"issues":[…],"practice":[…],"watch":[…]}
 //                AI の出力を読めなければ 502
 
-import { safeEqual, isStaffRequest } from './auth.js';
+import { safeEqual, aiAccess } from './auth.js';
 
 export { safeEqual };
 
@@ -512,7 +513,9 @@ export async function handleInsight(request, env = {}, opts = {}) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, cors);
 
-  if (!(await isStaffRequest(request, env))) return json({ error: 'unauthorized' }, 401, cors);
+  const access = await aiAccess(request, env);
+  if (access === 'admin_only') return json({ error: 'admin_only' }, 403, cors);
+  if (access !== 'ok') return json({ error: 'unauthorized' }, 401, cors);
 
   let payload;
   try {

@@ -8,7 +8,7 @@ import { insightEndpoint, testConnection, reasonText } from '../ai.js';
 import { CHECK_METRICS, CHECK_EXAMPLES, DEFAULT_REWIND_SEC, targetText, parseBulkItems } from '../review.js';
 import { CLOCK_MODES, defaultClockRule } from '../clock.js';
 import { AI_EXCLUDE_ITEMS } from '../insights.js';
-import { extractWorkerUrl, canUseAi } from '../sync-core.js';
+import { extractWorkerUrl, canUseAi, isViewer } from '../sync-core.js';
 import {
   installHint, exportAll, importBackup, createDemoGame, rosterEditor, lastBackupText,
 } from './shared.js';
@@ -89,6 +89,16 @@ export async function renderSettings(root, params, app) {
   };
 
   const account = accountCard(app);
+  // 部員（見るだけ）：ログインの状態と配色だけ
+  if (isViewer(app.settings)) {
+    root.append(
+      h('header', { class: 'page-head' },
+        h('a', { class: 'btn', href: '#/' }, icon('home'), 'ホーム'),
+        h('h1', null, '設定'),
+        h('div', { class: 'head-actions' })),
+      h('div', { class: 'page form' }, account.el, themeCard(app)));
+    return account.cleanup;
+  }
   root.append(
     h('header', { class: 'page-head' },
       h('a', { class: 'btn', href: '#/' }, icon('home'), 'ホーム'),

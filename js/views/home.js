@@ -1,4 +1,5 @@
 // ホーム：試合一覧（新しい順）、新規試合、設定、バックアップ
+import { isViewer } from '../sync-core.js';
 import * as db from '../db.js';
 import { h, modal, confirmDialog, toast, formatDate, icon, brandMark } from '../ui.js';
 import { sortGames, quarterState, quarterLabel } from '../model.js';
@@ -18,9 +19,12 @@ export async function renderHome(root, params, app) {
 
   const backupStatus = h('span', { class: 'muted' }, lastBackupText(app.settings.lastBackupAt));
 
+  const viewer = isViewer(app.settings);
   const list = games.length
     ? h('ul', { class: 'game-list' }, games.map((g) => gameCard(g, scores.get(g.id), app)))
-    : h('div', { class: 'empty' },
+    : viewer
+      ? h('div', { class: 'empty' }, h('p', null, 'まだ試合がありません。'), h('p', null, '先生が記録した試合が、共有から自動で届きます。'))
+      : h('div', { class: 'empty' },
         h('p', null, 'まだ試合がありません。'),
         h('p', null, '「新しい試合」から始めるか、デモ試合で集計とシュートチャートを確かめられます。'),
         h('button', {
@@ -45,14 +49,16 @@ export async function renderHome(root, params, app) {
       h('div', { class: 'brand' },
         brandMark(),
         h('div', { class: 'brand-text' }, h('h1', null, 'BasketBall Analyst'))),
-      h('div', { class: 'head-actions' },
-        h('a', { class: 'btn', href: '#/qa' }, icon('book'), '場面別Q&A'),
-        h('a', { class: 'btn', href: '#/settings' }, icon('settings'), '設定'),
-        h('a', { class: 'btn primary', href: '#/new' }, icon('plus'), '新しい試合'))),
+      viewer
+        ? h('div', { class: 'head-actions' }, h('a', { class: 'btn', href: '#/settings' }, icon('settings'), '設定'))
+        : h('div', { class: 'head-actions' },
+          h('a', { class: 'btn', href: '#/qa' }, icon('book'), '場面別Q&A'),
+          h('a', { class: 'btn', href: '#/settings' }, icon('settings'), '設定'),
+          h('a', { class: 'btn primary', href: '#/new' }, icon('plus'), '新しい試合'))),
     h('div', { class: 'page' },
       installHint(app, { compact: true }),
       syncLine,
-      h('section', { class: 'backup-bar' },
+      viewer ? null : h('section', { class: 'backup-bar' },
         h('div', null, h('strong', null, 'バックアップ'), ' ', backupStatus),
         h('button', {
           class: 'btn', type: 'button',
@@ -104,17 +110,21 @@ function gameCard(g, info, app) {
       actions: [{ label: '閉じる' }],
     });
   };
+  // 部員（見るだけ）は集計だけ
+  const viewer = isViewer(app.settings);
   return h('li', { class: 'game-card' },
-    h('a', { class: 'game-main', href: `#/game/${g.id}/record` },
+    h('a', { class: 'game-main', href: `#/game/${g.id}/${viewer ? 'summary' : 'record'}` },
       h('div', { class: 'game-date' }, formatDate(g.date), g.isDemo ? h('span', { class: 'tag' }, 'デモ') : null),
       h('div', { class: 'game-title' }, `vs ${g.opponent || '相手未入力'}`),
       h('div', { class: 'game-sub' }, g.tournament ? h('span', null, g.tournament) : null, h('span', { class: ['status', status(info).cls] }, status(info).text))),
     h('div', { class: 'game-score' },
       h('span', { class: 'us' }, score.us), h('span', { class: 'sep' }, '−'), h('span', { class: 'opp' }, score.opp)),
-    h('div', { class: 'game-actions' },
-      h('a', { class: 'btn', href: `#/game/${g.id}/record` }, icon('pencil'), '記録'),
-      h('a', { class: 'btn', href: `#/game/${g.id}/summary` }, icon('chart'), '集計'),
-      h('a', { class: 'btn', href: `#/game/${g.id}/review` }, icon('film'), '振り返り'),
-      h('button', { class: 'btn', type: 'button', 'aria-label': 'その他の操作', onclick: more }, icon('more'))),
+    viewer
+      ? h('div', { class: 'game-actions' }, h('a', { class: 'btn', href: `#/game/${g.id}/summary` }, icon('chart'), '集計'))
+      : h('div', { class: 'game-actions' },
+        h('a', { class: 'btn', href: `#/game/${g.id}/record` }, icon('pencil'), '記録'),
+        h('a', { class: 'btn', href: `#/game/${g.id}/summary` }, icon('chart'), '集計'),
+        h('a', { class: 'btn', href: `#/game/${g.id}/review` }, icon('film'), '振り返り'),
+        h('button', { class: 'btn', type: 'button', 'aria-label': 'その他の操作', onclick: more }, icon('more'))),
   );
 }

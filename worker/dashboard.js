@@ -836,7 +836,8 @@ export async function handleInsight(request, env = {}, opts = {}) {
 //   最初の管理者 POST /basket/auth/setup   { setupPass（STAFF_PASS）, loginId, displayName, password } アカウントが1つもないときだけ
 //   ログイン     POST /basket/auth/login   { loginId, password, device } → { token, user }
 //                POST /basket/auth/logout  GET /basket/auth/me   POST /basket/auth/password { current, next }
-//   アカウント   GET /basket/users   POST /basket/users { loginId, displayName, password, role }（管理者だけ）
+//   アカウント   GET /basket/users   POST /basket/users { loginId, displayName, password, role: admin|staff|student }（管理者だけ）
+//                student＝部員（見るだけ）：同期で受け取るだけ。AI の結果・チェック項目・動画の URL は渡さない
 //                POST /basket/users/update { id, displayName?, role?, disabled?, password? }   POST /basket/users/delete { id }
 //   同期         POST /basket/sync { cursor, push: { games, events, team }, limit }
 //                → { cursor, items: [{ t: 'g'|'e'|'s', id, gameId?, data, deleted, rev }], more, applied }
@@ -855,6 +856,10 @@ export const MAX_TEAM_BYTES = 200000;
 export const AI_GAME_KEYS = ['insights', 'advice', 'reports', 'reportNote'];
 // 管理者だけが変えられるチームの設定（AI に伝えない項目）
 export const ADMIN_TEAM_KEYS = ['aiExclude'];
+// 部員（見るだけ：student）に渡すもの。試合からは AI の結果に加えて、チェック項目（コーチの評価とメモ）と動画の URL を外す。
+// チームの設定は守備隊形の並びだけ（集計の表の順に使う）
+export const VIEWER_STRIP_KEYS = [...AI_GAME_KEYS, 'checklist', 'videos'];
+export const VIEWER_TEAM_KEYS = ['defenses'];
 
 function parseObject(text) {
   try {
@@ -884,6 +889,23 @@ export function keepAiData(incoming, existing) {
   const old = existing ? parseObject(existing) : null;
   if (old) for (const k of AI_GAME_KEYS) if (old[k] !== undefined) g[k] = old[k];
   return JSON.stringify(g);
+}
+
+/** 部員に渡す試合：AI の結果・チェック項目・動画の URL を外す */
+export function viewerGameData(data) {
+  const g = parseObject(data);
+  if (!g) return data;
+  for (const k of VIEWER_STRIP_KEYS) delete g[k];
+  return JSON.stringify(g);
+}
+
+/** 部員に渡すチームの設定：守備隊形の並びだけ */
+export function viewerTeamData(data) {
+  const t = parseObject(data);
+  if (!t) return data;
+  const out = {};
+  for (const k of VIEWER_TEAM_KEYS) if (t[k] !== undefined) out[k] = t[k];
+  return JSON.stringify(out);
 }
 
 /** 管理者でない人が送ってきたチームの設定：管理者だけが変えられる項目は、共有に保存してある値を残す */
@@ -1026,7 +1048,7 @@ async function createUser(request, env, cors) {
   const loginId = normalizeLoginId(body && body.loginId);
   const displayName = cleanName(body && body.displayName);
   // 生徒のアカウントは今後（今は管理者とスタッフだけ作れる）
-  const role = body && (body.role === 'admin' || body.role === 'staff') ? body.role : null;
+  const role = body && ROLES.includes(body.role) ? body.role : null;
   if (!loginId || !displayName || !role || !validPassword(body.password)) return json({ error: 'invalid_input' }, 400, cors);
   const exists = await env.DB.prepare('SELECT id FROM users WHERE login_id = ?1').bind(loginId).first();
   if (exists) return json({ error: 'login_id_taken' }, 409, cors);
@@ -1055,7 +1077,7 @@ async function updateUser(request, env, cors) {
     next.display_name = n;
   }
   if (body.role !== undefined) {
-    if (body.role !== 'admin' && body.role !== 'staff') return json({ error: 'invalid_input' }, 400, cors);
+    if (!ROLES.includes(body.role)) return json({ error: 'invalid_input' }, 400, cors);
     next.role = body.role;
   }
   if (body.disabled !== undefined) next.disabled = body.disabled ? 1 : 0;
@@ -1186,14 +1208,16 @@ export function pullStatement(db, cursor, limit) {
 }
 
 async function sync(request, env, cors) {
-  const { user, res } = await requireUser(request, env, cors, ['admin', 'staff']);
+  const { user, res } = await requireUser(request, env, cors, ['admin', 'staff', 'student']);
   if (res) return res;
   const body = await readJson(request);
   if (!body) return json({ error: 'bad_request' }, 400, cors);
   const cursor = Number.isInteger(body.cursor) && body.cursor >= 0 ? body.cursor : 0;
   const limit = Math.min(MAX_PULL_LIMIT, Number.isInteger(body.limit) && body.limit > 0 ? body.limit : DEFAULT_PULL_LIMIT);
-  const clean = cleanPush(body.push);
   const isAdmin = user.role === 'admin';
+  const isViewer = user.role === 'student';
+  // 部員は見るだけ：送ってきた変更は使わない
+  const clean = cleanPush(isViewer ? null : body.push);
   if (!isAdmin) {
     // 管理者でない人の変更では、AI の結果と管理者だけの設定を、共有に保存してある値のまま残す
     const ids = clean.games.filter((g) => !g.deleted).map((g) => g.id);
@@ -1212,8 +1236,10 @@ async function sync(request, env, cors) {
   if (stmts.length) await env.DB.batch(stmts);
   const { results } = await pullStatement(env.DB, cursor, limit).all();
   const items = results.map((r) => {
-    // 管理者でない人には、試合の AI の結果を外して渡す
-    const data = !isAdmin && r.t === 'g' && !r.deleted ? stripAiData(r.data) : r.data;
+    // 管理者でない人には、試合の AI の結果を外して渡す（部員にはチェック項目・動画の URL も外し、チームの設定は守備隊形だけ）
+    let data = r.data;
+    if (!r.deleted && r.t === 'g') data = isViewer ? viewerGameData(r.data) : isAdmin ? r.data : stripAiData(r.data);
+    if (isViewer && r.t === 's') data = viewerTeamData(r.data);
     const item = { t: r.t, id: r.id, data, deleted: !!r.deleted, rev: r.rev };
     if (r.t === 'e') item.gameId = r.game_id;
     return item;
@@ -1224,6 +1250,7 @@ async function sync(request, env, cors) {
     more: items.length === limit,
     // この Worker は AI の結果を管理者だけに渡す（アプリはこれを見て、管理者でない端末に残っている AI の結果を消す）
     aiPolicy: 'admin_only',
+    readOnly: isViewer,
     applied: { games: clean.games.length, events: clean.events.length, team: clean.team ? 1 : 0, rejected: clean.rejected },
   }, 200, cors);
 }

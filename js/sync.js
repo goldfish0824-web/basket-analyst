@@ -4,7 +4,7 @@
 // 同期するとき：ログインしたとき・アプリを開いたとき・前面に出たとき・電波が戻ったとき・
 //               端末で記録を変えてから少したったとき（記録中に何度も通信しないよう20秒まとめる）・「今すぐ同期」
 import * as db from './db.js';
-import { buildPush, planApply, workerBase, syncErrorText, canUseAi } from './sync-core.js';
+import { buildPush, planApply, workerBase, syncErrorText, canUseAi, isViewer } from './sync-core.js';
 
 const SYNC_DEBOUNCE_MS = 20000;
 const SYNC_MIN_INTERVAL_MS = 30000;
@@ -93,8 +93,8 @@ async function afterLogin(app, data) {
   // 別の Worker に切り替えたときは、最初から受け取り直す
   if (state.base !== base) await db.putSyncState({ cursor: 0, base, lastSyncAt: null });
   await app.saveSettings({ ...app.settings, authToken: data.token, authUser: data.user });
-  // この端末の記録を共有に送る（デモ試合は除く）
-  await db.queueEverything();
+  // この端末の記録を共有に送る（デモ試合は除く）。部員（見るだけ）は送らない
+  if (!isViewer(app.settings)) await db.queueEverything();
   return syncNow({ force: true });
 }
 
@@ -186,6 +186,8 @@ async function runSync({ force = false } = {}) {
   // 送る予定がなくなり、受け取るものもなくなるまで（多くても20回）
   async function rounds() {
     for (let round = 0; round < 20; round++) {
+      // 部員（見るだけ）の端末は送らない（送る予定は捨てる。Worker も受け付けない）
+      if (isViewer(app.settings)) await db.removeOutbox(await db.listOutbox());
       const entries = await db.listOutbox();
       // チームの設定は、保存されている値から送る
       const records = { ...(await db.recordsFor(entries)), settings: await db.getSettings() };
@@ -213,7 +215,7 @@ async function runSync({ force = false } = {}) {
 
   let r = await rounds();
   // 最初から受け取ったのに共有にチームの設定がなければ（最初の端末）、この端末の設定を送る
-  if (r.ok && fromStart && !total.gotTeam) {
+  if (r.ok && fromStart && !total.gotTeam && !isViewer(app.settings)) {
     await db.queueTeamSettings();
     r = await rounds();
   }

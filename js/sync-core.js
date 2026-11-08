@@ -223,3 +223,21 @@ export function stripAiFields(game) {
 export function hasAiFields(game) {
   return !!game && ((game.insights || []).length > 0 || (game.advice || []).length > 0 || (game.reports || []).length > 0 || !!game.reportNote);
 }
+
+// ---- 部員（見るだけ）のアカウント ----
+// 試合の一覧と集計（チーム全体の数字・全員の個人スタッツ）だけを見る。記録・編集・振り返り・Q&A・AI は使わない。
+
+/** 部員（見るだけ）のアカウントでログインしているか */
+export function isViewer(settings = {}) {
+  const loggedIn = !!(settings.authToken && settings.authUser && workerBase(settings.workerUrl));
+  return loggedIn && settings.authUser.role === 'student';
+}
+
+const VIEWER_VIEWS = new Set(['home', 'summary', 'settings']);
+
+/** 部員の端末で開ける画面に直す（試合の画面は集計へ、ほかはホームへ）。開けるならそのまま返す */
+export function viewerRoute(params) {
+  if (VIEWER_VIEWS.has(params.view)) return params;
+  if (params.gameId) return { view: 'summary', gameId: params.gameId };
+  return { view: 'home' };
+}

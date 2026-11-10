@@ -1,4 +1,5 @@
 // 集計画面（SPEC 4章）：ボックススコア、相手チーム、チーム指標、シュートチャート、クォーター別得点、守備隊形別
+import { flowSection, sheetSection } from './game-views.js';
 import { canUseAi, isViewer } from '../sync-core.js';
 import * as db from '../db.js';
 import { h, replace, toast, formatDate, icon } from '../ui.js';
@@ -14,7 +15,9 @@ import { exportGame } from './shared.js';
 
 const TABS = [
   { key: 'box', label: 'ボックススコア' },
+  { key: 'flow', label: '試合の流れ・比較' },
   { key: 'chart', label: 'シュートチャート' },
+  { key: 'sheet', label: 'スコアシート' },
   { key: 'team', label: 'チーム指標・守備隊形別' },
 ];
 
@@ -46,6 +49,8 @@ export async function renderSummary(root, params, app) {
 
   function drawContent() {
     if (tab === 'box') replace(content, boxSection(game, events));
+    else if (tab === 'flow') replace(content, flowSection(game, events, app.settings));
+    else if (tab === 'sheet') replace(content, sheetSection(game, events, app.settings));
     else if (tab === 'chart') replace(content, chartSection(game, events));
     else replace(content, teamSection(game, events, app.settings.defenses));
   }
@@ -332,8 +337,9 @@ export function chartSection(game, events) {
     h('div', { class: ['chart-court', 'card'] },
       svg,
       h('div', { class: 'chart-legend' },
-        h('span', { class: 'lg' }, h('span', { class: 'lg-made' }), '成功（緑の○）'),
-        h('span', { class: 'lg' }, h('span', { class: 'lg-miss' }, '×'), '失敗（赤の×）')),
+        h('span', { class: 'lg' }, h('span', { class: 'lg-made' }, '4'), '成功（背番号を○で囲む）'),
+        h('span', { class: 'lg' }, h('span', { class: 'lg-miss' }, '4'), '失敗（背番号だけ）'),
+        h('span', { class: 'lg' }, h('span', { class: 'lg-miss' }, '?'), '番号の分からない相手')),
       picked),
     h('div', { class: 'chart-side' },
       h('section', { class: 'card' }, h('h2', null, '絞り込み'), filters),

@@ -53,7 +53,8 @@ export function createCourt({ onTap, label = 'ハーフコート' } = {}) {
   const shots = s('g', { class: 'court-shots' });
   const overlay = s('g', { class: 'court-overlay' });
   const pending = s('g', { class: 'court-pending' });
-  svg.append(lines, zones, shots, overlay, pending);
+  // シュートの背番号は、ゾーン別の成功-試投の札より上に描く（隠れないように）
+  svg.append(lines, zones, overlay, shots, pending);
 
   if (onTap) {
     svg.addEventListener('click', (ev) => {
@@ -87,6 +88,10 @@ export function drawZoneLines(layer) {
  * シュートの印。成功＝○、失敗＝×。色はチーム（自＝青、相手＝橙）。
  * opts = { faded, highlightId, onSelect(e) }
  */
+/**
+ * シュートの印：打った選手の背番号を書き、入ったシュートは背番号を○で囲む（外れは背番号だけ）。
+ * 成功は緑、失敗は赤（チームの色とは別）。番号の分からない相手のシュートは「?」。
+ */
 export function drawShots(layer, shots, opts = {}) {
   clear(layer);
   const halo = s('g', { class: 'shot-halo' });
@@ -97,17 +102,16 @@ export function drawShots(layer, shots, opts = {}) {
     const cls = ['shot', e.team === 'opp' ? 'opp' : 'us', e.made ? 'made' : 'miss', opts.faded ? 'faded' : '', e.id === opts.highlightId ? 'last' : '']
       .filter(Boolean)
       .join(' ');
-    const r = 0.26;
-    const d = 0.22;
+    const label = e.player == null ? '?' : String(e.player);
+    const small = label.length >= 2;
     const title = s('title', null, `${quarterLabel(e.quarter)} ${describeEvent(e, ZONE_LABELS)}`);
+    const g = s('g', { class: cls }, title);
     if (e.made) {
-      halo.appendChild(s('circle', { cx: e.x, cy: e.y, r, class: 'halo' }));
-      marks.appendChild(s('circle', { cx: e.x, cy: e.y, r, class: cls }, title));
-    } else {
-      const x = `M${e.x - d} ${e.y - d} L${e.x + d} ${e.y + d} M${e.x + d} ${e.y - d} L${e.x - d} ${e.y + d}`;
-      halo.appendChild(s('path', { d: x, class: 'halo' }));
-      marks.appendChild(s('path', { d: x, class: cls }, title));
+      halo.appendChild(s('circle', { cx: e.x, cy: e.y, r: 0.36, class: 'halo' }));
+      g.appendChild(s('circle', { cx: e.x, cy: e.y, r: 0.36, class: 'ring' }));
     }
+    g.appendChild(s('text', { x: e.x, y: e.y, class: ['num', small ? 'two' : ''].join(' ').trim() }, label));
+    marks.appendChild(g);
     if (opts.onSelect) {
       // 印より大きいタップ領域
       marks.appendChild(
